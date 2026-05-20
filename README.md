@@ -87,6 +87,21 @@ OpenReel Video is a fully-featured browser-based video editor that runs entirely
 - **Web Workers** - Background processing
 - **4K support** - Edit and export in 4K resolution
 
+### Video Preview Optimization
+- **Intelligent frame caching (LRU)** - Smart LRU cache with configurable size (up to 500MB), automatic preload of 30 frames ahead and 10 frames behind the playhead for instant scrubbing
+- **GPU texture cache** - Dedicated GPU texture caching layer with LRU eviction to minimize redundant GPU uploads during real-time preview
+- **Frame ring buffer** - Lock-free triple-buffered frame presentation system that tracks dropped frames, fallback usage, and write-to-present latency for smooth, tear-free playback
+- **Parallel frame decoding** - Multi-worker Web Worker pool for concurrent video frame decoding, distributing decode work across CPU cores to keep the main thread responsive
+- **GPU compositing pipeline** - WebGPU-accelerated multi-layer compositing with sorted z-index rendering, blend modes, and dirty-flag optimization to skip unchanged frames
+- **Frame interpolation** - Optical flow-based frame interpolation (GPU + CPU fallback) with quality presets (low/medium/high) and frame budget control for smooth slow-motion preview
+- **Progressive rendering fallback** - Automatic fallback from WebGPU → Canvas2D when GPU is unavailable, ensuring preview works on all hardware
+- **Adaptive playback buffering** - Configurable frame buffer (up to 60 frames / ~2s at 30fps) with automatic buffer-ahead during seek and play for stutter-free preview
+- **Scrub debouncing** - Intelligent debounce on timeline scrubbing to prevent excessive frame renders while maintaining responsiveness
+- **OffscreenCanvas rendering** - Uses OffscreenCanvas for off-main-thread frame preparation, reducing jank during effects processing and compositing
+- **Master timeline clock** - Centralized high-precision clock with requestAnimationFrame synchronization for frame-accurate preview at any playback rate (0.25x–4x)
+- **Real-time effects pipeline** - On-the-fly preview of video effects, color grading, background removal, and chroma key without pre-rendering
+- **Composite frame buffer** - Per-clip ring buffers aggregated into a unified composite buffer for efficient multi-track preview with minimal memory overhead
+
 ---
 
 ## Quick Start
