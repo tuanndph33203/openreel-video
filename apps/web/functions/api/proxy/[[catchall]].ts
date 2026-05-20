@@ -122,8 +122,10 @@ export const onRequest: PagesFunction = async (context) => {
   const baseUrl = customBaseUrl ? customBaseUrl.trim().replace(/\/$/, "") : config.baseUrl;
 
   const originalUrl = new URL(context.request.url);
+  
+  // Tránh nhân đôi đường dẫn dịch vụ nếu người dùng điền full URL ở settings
   const targetUrl = remainingPath
-    ? `${baseUrl}/${remainingPath}${originalUrl.search}`
+    ? (baseUrl.endsWith(remainingPath) ? `${baseUrl}${originalUrl.search}` : `${baseUrl}/${remainingPath}${originalUrl.search}`)
     : `${baseUrl}${originalUrl.search}`;
 
   const upstreamHeaders = new Headers();
@@ -131,8 +133,15 @@ export const onRequest: PagesFunction = async (context) => {
   if (contentType) {
     upstreamHeaders.set("Content-Type", contentType);
   }
-  for (const [key, value] of Object.entries(config.authHeaders(apiKey))) {
-    upstreamHeaders.set(key, value);
+
+  const isMimo = baseUrl.includes("xiaomimimo.com") || baseUrl.includes("mimo");
+  if (isMimo) {
+    upstreamHeaders.set("api-key", apiKey);
+    upstreamHeaders.set("Authorization", `Bearer ${apiKey}`);
+  } else {
+    for (const [key, value] of Object.entries(config.authHeaders(apiKey))) {
+      upstreamHeaders.set(key, value);
+    }
   }
 
   let upstreamResponse: Response;

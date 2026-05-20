@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { RotateCcw, Sparkles } from "lucide-react";
 import type { Clip } from "@openreel/core";
 import { getSpeedEngine } from "@openreel/core";
@@ -6,7 +6,8 @@ import { useProjectStore } from "../../../stores/project-store";
 import { Input, Switch, Label, Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@openreel/ui";
 
 interface SpeedSectionProps {
-  clip: Clip;
+  clip?: Clip;
+  clips?: Clip[];
 }
 
 const SPEED_PRESETS = [
@@ -21,15 +22,26 @@ const SPEED_PRESETS = [
   { label: "5×", value: 5 },
 ];
 
-export const SpeedSection: React.FC<SpeedSectionProps> = ({ clip }) => {
+export const SpeedSection: React.FC<SpeedSectionProps> = ({ clip, clips }) => {
   const speedEngine = getSpeedEngine();
   const { project } = useProjectStore();
 
-  const [currentSpeed, setCurrentSpeed] = useState(
-    speedEngine.getClipSpeed(clip.id) || 1,
-  );
+  const targetClips = useMemo(() => {
+    if (clips && clips.length > 0) return clips;
+    if (clip) return [clip];
+    return [];
+  }, [clip, clips]);
+
+  const primaryClip = targetClips[0];
+
+  const [currentSpeed, setCurrentSpeed] = useState(() => {
+    if (!primaryClip) return 1;
+    return speedEngine.getClipSpeed(primaryClip.id) || 1;
+  });
+
   const [isReversed, setIsReversed] = useState(() => {
-    const speedData = speedEngine.getClipSpeedData(clip.id);
+    if (!primaryClip) return false;
+    const speedData = speedEngine.getClipSpeedData(primaryClip.id);
     return speedData?.reverse || false;
   });
 
@@ -39,54 +51,70 @@ export const SpeedSection: React.FC<SpeedSectionProps> = ({ clip }) => {
   const [affectAudio, setAffectAudio] = useState(true);
 
   useEffect(() => {
+    if (primaryClip) {
+      const speed = speedEngine.getClipSpeed(primaryClip.id) || 1;
+      setCurrentSpeed(speed);
+      setCustomSpeed(speed.toString());
+      const speedData = speedEngine.getClipSpeedData(primaryClip.id);
+      setIsReversed(speedData?.reverse || false);
+    }
+  }, [primaryClip]);
+
+  useEffect(() => {
     setCustomSpeed(currentSpeed.toString());
   }, [currentSpeed]);
 
   const hasAudio = () => {
-    const audioTrack = project.timeline.tracks.find(
-      (track) =>
-        track.type === "audio" &&
-        track.clips.some((audioClip) => audioClip.mediaId === clip.mediaId),
-    );
-    return !!audioTrack;
+    return project.timeline.tracks.some((track) => {
+      if (track.type !== "audio") return false;
+      return track.clips.some((audioClip) =>
+        targetClips.some((tc) => tc.mediaId === audioClip.mediaId)
+      );
+    });
   };
 
   const updateClipDuration = (speed: number) => {
-    const originalDuration = clip.outPoint - clip.inPoint;
-    const newDuration = originalDuration / speed;
+    // 1. First, call speedEngine.setClipSpeed for each clip in targetClips
+    targetClips.forEach((c) => {
+      const origDur = c.outPoint - c.inPoint;
+      speedEngine.setClipSpeed(c.id, speed, origDur);
+    });
 
+    // 2. Map the tracks to update clip durations in store
     const tracks = project.timeline.tracks.map((track) => {
-      const clipIndex = track.clips.findIndex((c) => c.id === clip.id);
-      if (clipIndex === -1) {
+      let trackChanged = false;
+      const newClips = track.clips.map((c) => {
+        // Is this clip in our targetClips?
+        const isTarget = targetClips.some((tc) => tc.id === c.id);
+        if (isTarget) {
+          trackChanged = true;
+          const origDur = c.outPoint - c.inPoint;
+          return {
+            ...c,
+            duration: origDur / speed,
+            speed,
+          };
+        }
+
+        // If it's an audio track and affectAudio is true, check if it's linked to any targetClip
         if (affectAudio && track.type === "audio") {
-          const audioClipIndex = track.clips.findIndex(
-            (c) => c.mediaId === clip.mediaId,
-          );
-          if (audioClipIndex !== -1) {
-            const audioClip = track.clips[audioClipIndex];
-            const updatedAudioClip = {
-              ...audioClip,
-              duration: newDuration,
+          const linkedClip = targetClips.find((tc) => tc.mediaId === c.mediaId);
+          if (linkedClip) {
+            trackChanged = true;
+            const origDur = c.outPoint - c.inPoint;
+            speedEngine.setClipSpeed(c.id, speed, origDur);
+            return {
+              ...c,
+              duration: origDur / speed,
               speed,
             };
-            const newClips = [...track.clips];
-            newClips[audioClipIndex] = updatedAudioClip;
-            speedEngine.setClipSpeed(audioClip.id, speed, audioClip.duration);
-            return { ...track, clips: newClips };
           }
         }
-        return track;
-      }
 
-      const updatedClip = {
-        ...track.clips[clipIndex],
-        duration: newDuration,
-        speed,
-      };
-      const newClips = [...track.clips];
-      newClips[clipIndex] = updatedClip;
+        return c;
+      });
 
-      return { ...track, clips: newClips };
+      return trackChanged ? { ...track, clips: newClips } : track;
     });
 
     useProjectStore.setState({
@@ -99,30 +127,34 @@ export const SpeedSection: React.FC<SpeedSectionProps> = ({ clip }) => {
   };
 
   const updateClipReverse = (reversed: boolean) => {
+    // 1. Call speedEngine.setReverse for each clip in targetClips
+    targetClips.forEach((c) => {
+      speedEngine.setReverse(c.id, reversed, c.duration);
+    });
+
+    // 2. Map the tracks to update reverse state in store
     const tracks = project.timeline.tracks.map((track) => {
-      const clipIndex = track.clips.findIndex((c) => c.id === clip.id);
-      if (clipIndex === -1) {
+      let trackChanged = false;
+      const newClips = track.clips.map((c) => {
+        const isTarget = targetClips.some((tc) => tc.id === c.id);
+        if (isTarget) {
+          trackChanged = true;
+          return { ...c, reversed };
+        }
+
         if (affectAudio && track.type === "audio") {
-          const audioClipIndex = track.clips.findIndex(
-            (c) => c.mediaId === clip.mediaId,
-          );
-          if (audioClipIndex !== -1) {
-            const audioClip = track.clips[audioClipIndex];
-            const updatedAudioClip = { ...audioClip, reversed };
-            const newClips = [...track.clips];
-            newClips[audioClipIndex] = updatedAudioClip;
-            speedEngine.setReverse(audioClip.id, reversed, audioClip.duration);
-            return { ...track, clips: newClips };
+          const linkedClip = targetClips.find((tc) => tc.mediaId === c.mediaId);
+          if (linkedClip) {
+            trackChanged = true;
+            speedEngine.setReverse(c.id, reversed, c.duration);
+            return { ...c, reversed };
           }
         }
-        return track;
-      }
 
-      const updatedClip = { ...track.clips[clipIndex], reversed };
-      const newClips = [...track.clips];
-      newClips[clipIndex] = updatedClip;
+        return c;
+      });
 
-      return { ...track, clips: newClips };
+      return trackChanged ? { ...track, clips: newClips } : track;
     });
 
     useProjectStore.setState({
@@ -135,7 +167,6 @@ export const SpeedSection: React.FC<SpeedSectionProps> = ({ clip }) => {
   };
 
   const handleSpeedPreset = (speed: number) => {
-    speedEngine.setClipSpeed(clip.id, speed, clip.duration);
     updateClipDuration(speed);
     setCurrentSpeed(speed);
   };
@@ -143,7 +174,6 @@ export const SpeedSection: React.FC<SpeedSectionProps> = ({ clip }) => {
   const handleCustomSpeed = () => {
     const speed = parseFloat(customSpeed);
     if (!isNaN(speed) && speed >= 0.1 && speed <= 100) {
-      speedEngine.setClipSpeed(clip.id, speed, clip.duration);
       updateClipDuration(speed);
       setCurrentSpeed(speed);
     }
@@ -151,10 +181,12 @@ export const SpeedSection: React.FC<SpeedSectionProps> = ({ clip }) => {
 
   const handleToggleReverse = () => {
     const newReversed = !isReversed;
-    speedEngine.setReverse(clip.id, newReversed, clip.duration);
     updateClipReverse(newReversed);
     setIsReversed(newReversed);
   };
+
+  const smoothSlowMoChecked = primaryClip ? (primaryClip.smoothSlowMo ?? false) : false;
+  const interpolationQualityValue = primaryClip ? (primaryClip.interpolationQuality ?? "medium") : "medium";
 
   return (
     <div className="space-y-3">
@@ -238,15 +270,19 @@ export const SpeedSection: React.FC<SpeedSectionProps> = ({ clip }) => {
             </div>
             <Switch
               id="smooth-slowmo"
-              checked={clip.smoothSlowMo ?? false}
+              checked={smoothSlowMoChecked}
               onCheckedChange={(checked) => {
                 const tracks = project.timeline.tracks.map((track) => {
-                  const clipIndex = track.clips.findIndex((c) => c.id === clip.id);
-                  if (clipIndex === -1) return track;
-                  const updatedClip = { ...track.clips[clipIndex], smoothSlowMo: checked };
-                  const newClips = [...track.clips];
-                  newClips[clipIndex] = updatedClip;
-                  return { ...track, clips: newClips };
+                  let trackChanged = false;
+                  const newClips = track.clips.map((c) => {
+                    const isTarget = targetClips.some((tc) => tc.id === c.id);
+                    if (isTarget) {
+                      trackChanged = true;
+                      return { ...c, smoothSlowMo: checked };
+                    }
+                    return c;
+                  });
+                  return trackChanged ? { ...track, clips: newClips } : track;
                 });
                 useProjectStore.setState({
                   project: {
@@ -258,19 +294,23 @@ export const SpeedSection: React.FC<SpeedSectionProps> = ({ clip }) => {
               }}
             />
           </div>
-          {clip.smoothSlowMo && (
+          {smoothSlowMoChecked && (
             <div className="space-y-1">
               <Label className="text-xs text-text-tertiary">Quality</Label>
               <Select
-                value={clip.interpolationQuality ?? "medium"}
+                value={interpolationQualityValue}
                 onValueChange={(value: "low" | "medium" | "high") => {
                   const tracks = project.timeline.tracks.map((track) => {
-                    const clipIndex = track.clips.findIndex((c) => c.id === clip.id);
-                    if (clipIndex === -1) return track;
-                    const updatedClip = { ...track.clips[clipIndex], interpolationQuality: value };
-                    const newClips = [...track.clips];
-                    newClips[clipIndex] = updatedClip;
-                    return { ...track, clips: newClips };
+                    let trackChanged = false;
+                    const newClips = track.clips.map((c) => {
+                      const isTarget = targetClips.some((tc) => tc.id === c.id);
+                      if (isTarget) {
+                        trackChanged = true;
+                        return { ...c, interpolationQuality: value };
+                      }
+                      return c;
+                    });
+                    return trackChanged ? { ...track, clips: newClips } : track;
                   });
                   useProjectStore.setState({
                     project: {
@@ -305,7 +345,7 @@ export const SpeedSection: React.FC<SpeedSectionProps> = ({ clip }) => {
           </div>
           <div className="text-sm text-text-primary">
             Speed: {currentSpeed}× {isReversed && "• Reversed"}
-            {clip.smoothSlowMo && " • Smooth"}
+            {primaryClip?.smoothSlowMo && " • Smooth"}
           </div>
         </div>
       )}

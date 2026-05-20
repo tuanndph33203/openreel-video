@@ -40,6 +40,7 @@ export interface TranscriptionConfig {
     tone?: string;
     videoContext?: string;
     customBaseUrl?: string;
+    customModel?: string;
   };
 }
 
@@ -124,12 +125,26 @@ export class TranscriptionService {
     subtitles: Subtitle[],
     targetLanguage: string,
   ): Promise<Subtitle[]> {
-    if (this.config.translationMethod === "ai" && this.config.aiConfig?.apiKey) {
+    if (this.config.translationMethod === "ai") {
+      if (!this.config.aiConfig?.apiKey) {
+        throw new Error("Không thể dịch bằng AI: Thiếu API Key trong phần cài đặt (Settings > API Keys).");
+      }
       try {
         console.log("Using AI Translation...");
         return await this.translateSubtitlesWithAI(subtitles, targetLanguage);
       } catch (err) {
-        console.error("AI translation failed, falling back to Google Translate:", err);
+        console.error("AI translation failed:", err);
+        
+        let customMessage = "Dịch phụ đề bằng AI thất bại.";
+        const errMsg = err instanceof Error ? err.message : String(err);
+        
+        if (errMsg.includes("401") || errMsg.toLowerCase().includes("invalid api key") || errMsg.toLowerCase().includes("invalid_key")) {
+          customMessage = "Lỗi xác thực API Key (401 - Invalid API Key): Khóa API OpenAI / Mino AI bạn cung cấp không hợp lệ, bị nhập sai hoặc đã hết hạn. Vui lòng kiểm tra lại trong Settings > API Keys.";
+        } else {
+          customMessage = `Dịch phụ đề bằng AI thất bại: ${errMsg}`;
+        }
+        
+        throw new Error(customMessage);
       }
     }
 
@@ -205,21 +220,42 @@ export class TranscriptionService {
 
     // Filter subtitles that have text
     const textSubtitles = subtitles.filter(s => s.text && s.text.trim().length > 0);
-    if (textSubtitles.length === 0) {
-      return subtitles; // Nothing to translate
+    if (textSubtitles.length === 0) return subtitles;
+
+    // ─── Proxy URL & headers ─────────────────────────────────────────────
+    const url = `/api/proxy/${provider}${provider === 'openai' ? '/chat/completions' : '/messages'}`;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'x-proxy-api-key': aiConfig.apiKey
+    };
+    if (aiConfig.customBaseUrl) {
+      headers['x-proxy-base-url'] = aiConfig.customBaseUrl.trim().replace(/\/$/, "");
     }
 
-    // Build the array to send
-    const subtitlesPayload = textSubtitles.map(s => ({
-      id: s.id,
-      text: s.text
-    }));
+    // ─── Model resolution ─────────────────────────────────────────────────
+    const isMimo = !!(aiConfig.customBaseUrl && aiConfig.customBaseUrl.includes('xiaomimimo.com'));
+    const VALID_MIMO_MODELS = ['mimo-v2.5-pro', 'mimo-v2.5', 'mimo-v2-pro', 'mimo-v2-omni', 'mimo-v2-flash'];
+    let resolvedModel: string;
+    if (provider === 'openai') {
+      if (isMimo) {
+        const cm = (aiConfig.customModel?.trim() ?? '').toLowerCase();
+        resolvedModel = VALID_MIMO_MODELS.includes(cm) ? cm : 'mimo-v2.5-pro';
+      } else {
+        resolvedModel = aiConfig.customModel ? aiConfig.customModel.trim() : 'gpt-4o-mini';
+      }
+    } else {
+      resolvedModel = aiConfig.customModel ? aiConfig.customModel.trim() : 'claude-3-5-haiku-20241022';
+    }
 
-    const contextPrompt = aiConfig.videoContext ? `Additional Context/Topic of the video: ${aiConfig.videoContext}\n` : "";
+    const contextPrompt = aiConfig.videoContext
+      ? `Additional Context/Topic of the video: ${aiConfig.videoContext}\n`
+      : "";
+
     const systemPrompt = `You are a professional video translator. Translate the following subtitles into ${targetLanguage}.
 ${contextPrompt}Maintain the contextual flow, conversational tone, and exact meaning across the entire sequence.
 The requested tone is: ${tone}.
 Do not summarize. Translate every text segment exactly.
+CRITICAL LENGTH RULE: Each subtitle has a "wc" field showing the original word count. Your translation MUST have approximately the same number of words as that "wc" value (±2 words max). Subtitle timing is fixed — if your translation is too long, shorten it naturally. Never expand a short line into a long sentence.
 IMPORTANT: You MUST respond ONLY with a JSON object in this format:
 {
   "translations": [
@@ -228,144 +264,167 @@ IMPORTANT: You MUST respond ONLY with a JSON object in this format:
 }
 Do not include any markdowns (like \`\`\`json) or other conversational filler. Return ONLY the raw JSON object.`;
 
-    const isLocal = typeof window !== 'undefined' && 
-      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-
-    let url = "";
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json'
-    };
-
-    if (isLocal) {
-      // In local development, call directly
-      const baseUrl = aiConfig.customBaseUrl 
-        ? aiConfig.customBaseUrl.trim().replace(/\/$/, "") 
-        : (provider === 'openai' ? 'https://api.openai.com/v1' : 'https://api.anthropic.com/v1');
-      
+    // ─── Helper: build request body ───────────────────────────────────────
+    const buildRequestBody = (batchPayload: object[]) => {
       if (provider === 'openai') {
-        url = baseUrl.endsWith('/chat/completions') ? baseUrl : `${baseUrl}/chat/completions`;
-        headers['Authorization'] = `Bearer ${aiConfig.apiKey}`;
-      } else {
-        url = baseUrl.endsWith('/messages') ? baseUrl : `${baseUrl}/messages`;
-        headers['x-api-key'] = aiConfig.apiKey;
-        headers['anthropic-version'] = '2023-06-01';
-        headers['anthropic-dangerous-direct-browser-access'] = 'true';
+        const body: any = {
+          model: resolvedModel,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: JSON.stringify(batchPayload) }
+          ],
+          temperature: 0.3
+        };
+        if (!isMimo) body.response_format = { type: "json_object" };
+        return body;
       }
-    } else {
-      // In production/preview environments, route through Cloudflare proxy to avoid CORS/security issues
-      url = `/api/proxy/${provider}${provider === 'openai' ? '/chat/completions' : '/messages'}`;
-      headers['x-proxy-api-key'] = aiConfig.apiKey;
-      if (aiConfig.customBaseUrl) {
-        headers['x-proxy-base-url'] = aiConfig.customBaseUrl.trim().replace(/\/$/, "");
-      }
-    }
-
-    let requestBody: any;
-    if (provider === 'openai') {
-      requestBody = {
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: JSON.stringify(subtitlesPayload) }
-        ],
-        response_format: { type: "json_object" },
-        temperature: 0.3
-      };
-    } else {
-      requestBody = {
-        model: 'claude-3-5-haiku-20241022',
+      return {
+        model: resolvedModel,
         max_tokens: 4000,
         system: systemPrompt,
-        messages: [
-          { role: 'user', content: JSON.stringify(subtitlesPayload) }
-        ],
+        messages: [{ role: 'user', content: JSON.stringify(batchPayload) }],
         temperature: 0.3
       };
-    }
+    };
 
-    // Add debugging log to help verify the exact URL and API key prefix
-    const maskedApiKey = aiConfig.apiKey 
-      ? `${aiConfig.apiKey.slice(0, 5)}...${aiConfig.apiKey.slice(-4)} (length: ${aiConfig.apiKey.length})` 
-      : 'NONE';
-    console.log("[AI Translation Debug]", {
-      isLocal,
-      url,
-      provider,
-      maskedApiKey,
-      customBaseUrl: aiConfig.customBaseUrl,
-      headers: {
-        ...headers,
-        'Authorization': headers['Authorization'] ? 'Bearer [MASKED]' : undefined,
-        'x-api-key': headers['x-api-key'] ? '[MASKED]' : undefined,
-        'x-proxy-api-key': headers['x-proxy-api-key'] ? '[MASKED]' : undefined,
+    // ─── Helper: parse AI response robustly ──────────────────────────────
+    const parseResponse = (raw: string): Map<string, string> => {
+      let text = raw.trim();
+      // Strip markdown code fences if present
+      if (text.startsWith('```')) {
+        const first = text.indexOf('\n');
+        const last = text.lastIndexOf('```');
+        if (first !== -1 && last > first) text = text.substring(first + 1, last).trim();
       }
-    });
+      const parsed = JSON.parse(text);
+      const arr: Array<{ id: string; text: string }> = parsed.translations || [];
+      const map = new Map<string, string>();
+      for (const t of arr) {
+        if (t.id && t.text) map.set(t.id, t.text);
+      }
+      return map;
+    };
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(requestBody)
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`AI Translation request failed: ${response.status} - ${errorText}`);
+    // ─── Custom error for non-retryable failures ──────────────────────────
+    class ContentFilterError extends Error {
+      constructor(msg: string) { super(msg); this.name = 'ContentFilterError'; }
     }
 
-    const json = await response.json();
-    let textResponse = '';
+    // ─── Helper: call AI with retry (exponential back-off) ───────────────
+    const callWithRetry = async (
+      batchPayload: object[],
+      maxRetries = 3
+    ): Promise<Map<string, string>> => {
+      let lastError: unknown;
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          const response = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(buildRequestBody(batchPayload))
+          });
+          if (!response.ok) {
+            const errText = await response.text();
+            throw new Error(`HTTP ${response.status}: ${errText}`);
+          }
+          const json = await response.json();
 
-    if (provider === 'openai') {
-      textResponse = json.choices?.[0]?.message?.content || '';
-    } else {
-      textResponse = json.content?.[0]?.text || '';
-    }
+          // ── Detect content_filter (HTTP 200 but content rejected) ──────
+          const finishReason = json.choices?.[0]?.finish_reason;
+          if (finishReason === 'content_filter') {
+            const filterMsg = json.choices?.[0]?.message?.content ?? 'Content filtered';
+            console.warn(`[AI Translation] Batch blocked by content filter: "${filterMsg}". Skipping retries, will use original text.`);
+            throw new ContentFilterError(filterMsg);
+          }
 
-    textResponse = textResponse.trim();
-    // In case the model wrapped the JSON in markdown code blocks
-    if (textResponse.startsWith('```')) {
-      const firstLineBreak = textResponse.indexOf('\n');
-      const lastLineBreak = textResponse.lastIndexOf('```');
-      if (firstLineBreak !== -1 && lastLineBreak !== -1) {
-        textResponse = textResponse.substring(firstLineBreak + 1, lastLineBreak).trim();
+          const rawContent = provider === 'openai'
+            ? (json.choices?.[0]?.message?.content ?? '')
+            : (json.content?.[0]?.text ?? '');
+          return parseResponse(rawContent);
+        } catch (err) {
+          lastError = err;
+          // Content filter — no point retrying, bail out immediately
+          if (err instanceof ContentFilterError) throw err;
+          console.warn(`[AI Translation] Attempt ${attempt}/${maxRetries} failed:`, err);
+          if (attempt < maxRetries) {
+            await new Promise(r => setTimeout(r, attempt * 1000));
+          }
+        }
+      }
+      throw lastError;
+    };
+
+
+    // ─── Batch processing with context window ─────────────────────────────
+    const BATCH_SIZE = 30;
+    const CONTEXT_WINDOW = 15;
+    const globalTranslationMap = new Map<string, string>();
+
+    for (let i = 0; i < textSubtitles.length; i += BATCH_SIZE) {
+      const batchLines = textSubtitles.slice(i, i + BATCH_SIZE);
+
+      const prevLines = textSubtitles
+        .slice(Math.max(0, i - CONTEXT_WINDOW), i)
+        .map(s => s.text);
+
+      const nextLines = textSubtitles
+        .slice(i + BATCH_SIZE, Math.min(textSubtitles.length, i + BATCH_SIZE + CONTEXT_WINDOW))
+        .map(s => s.text);
+
+      const batchPayload: object[] = [
+        ...(prevLines.length > 0
+          ? [{ _context: 'previous', _note: 'For reference only — do NOT translate', lines: prevLines }]
+          : []),
+        ...batchLines.map(s => ({
+          id: s.id,
+          text: s.text,
+          wc: s.text.trim().split(/\s+/).filter(Boolean).length
+        })),
+        ...(nextLines.length > 0
+          ? [{ _context: 'next', _note: 'For reference only — do NOT translate', lines: nextLines }]
+          : [])
+      ];
+
+      try {
+        const batchMap = await callWithRetry(batchPayload, 3);
+        for (const [id, text] of batchMap) globalTranslationMap.set(id, text);
+        console.log(`[AI Translation] Batch ${Math.floor(i / BATCH_SIZE) + 1}: OK (${batchMap.size}/${batchLines.length})`);
+      } catch (err) {
+        // Content filter → dừng hẳn, báo lỗi rõ ràng
+        if (err instanceof ContentFilterError) {
+          throw new Error(
+            `Dịch phụ đề bị chặn bởi bộ lọc nội dung của AI (content_filter).\n` +
+            `Lý do: "${err.message}".\n` +
+            `Nội dung video có thể chứa chủ đề nhạy cảm mà provider AI từ chối xử lý. ` +
+            `Hãy thử đổi sang provider khác (OpenAI / Anthropic) hoặc dịch thủ công đoạn bị lọc.`
+          );
+        }
+        // Lỗi khác (network, timeout, parse) → fallback giữ text gốc cho batch này
+        console.error(`[AI Translation] Batch ${Math.floor(i / BATCH_SIZE) + 1} failed after 3 retries — using original text:`, err);
+        for (const s of batchLines) globalTranslationMap.set(s.id, s.text);
       }
     }
 
-    const parsed = JSON.parse(textResponse);
-    const translationsArray: Array<{ id: string; text: string }> = parsed.translations || [];
-
-    // Map by ID
-    const translationMap = new Map<string, string>();
-    for (const t of translationsArray) {
-      translationMap.set(t.id, t.text);
-    }
-
+    // ─── Assemble final result ────────────────────────────────────────────
     const resultList: Subtitle[] = [];
     for (const subtitle of subtitles) {
-      // 1. Keep original subtitle
       resultList.push(subtitle);
+      if (!subtitle.text) continue;
 
-      if (!subtitle.text) {
-        continue;
-      }
-
-      const translatedText = translationMap.get(subtitle.id);
-      if (translatedText) {
+      const translatedText = globalTranslationMap.get(subtitle.id);
+      if (translatedText && translatedText !== subtitle.text) {
         const duration = subtitle.endTime - subtitle.startTime;
-        const translatedWordsText = translatedText.split(/\s+/);
-        const numWords = translatedWordsText.length;
+        const translatedWords = translatedText.split(/\s+/);
+        const numWords = translatedWords.length;
+        const wordDuration = numWords > 0 ? duration / numWords : 0;
+        const words = numWords > 0
+          ? translatedWords.map((w, idx) => ({
+              text: w,
+              startTime: subtitle.startTime + idx * wordDuration,
+              endTime: subtitle.startTime + (idx + 1) * wordDuration,
+            }))
+          : undefined;
 
-        let words = undefined;
-        if (numWords > 0) {
-          const wordDuration = duration / numWords;
-          words = translatedWordsText.map((w, idx) => ({
-            text: w,
-            startTime: subtitle.startTime + idx * wordDuration,
-            endTime: subtitle.startTime + (idx + 1) * wordDuration,
-          }));
-        }
-
-        // 2. Add translated subtitle as a separate distinct element
         resultList.push({
           ...subtitle,
           id: `${subtitle.id}-translated`,

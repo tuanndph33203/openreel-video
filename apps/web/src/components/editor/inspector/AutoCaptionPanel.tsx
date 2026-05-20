@@ -103,6 +103,8 @@ export const AutoCaptionPanel: React.FC = () => {
     settingsOpen,
     customOpenAiBaseUrl,
     customAnthropicBaseUrl,
+    customOpenAiModel,
+    customAnthropicModel,
   } = useSettingsStore();
 
   const hasElevenLabsKey = configuredServices.includes("elevenlabs");
@@ -397,6 +399,7 @@ export const AutoCaptionPanel: React.FC = () => {
           tone: aiTone,
           videoContext: videoContext.trim() || undefined,
           customBaseUrl: aiProvider === "openai" ? customOpenAiBaseUrl : customAnthropicBaseUrl,
+          customModel: aiProvider === "openai" ? customOpenAiModel : customAnthropicModel,
         };
       }
 

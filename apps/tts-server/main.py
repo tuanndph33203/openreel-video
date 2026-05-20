@@ -21,12 +21,12 @@ print("Loading VieNeu-TTS model, please wait...")
 try:
     from vieneu import Vieneu
     tts = Vieneu()
-    print("✓ VieNeu-TTS is ready!")
+    print("[SUCCESS] VieNeu-TTS is ready!")
 except ImportError:
-    print("X Error: vieneu not installed.")
+    print("[ERROR] vieneu not installed.")
     tts = None
 except Exception as e:
-    print(f"X Error initializing VieNeu-TTS: {e}")
+    print(f"[ERROR] Error initializing VieNeu-TTS: {e}")
     tts = None
 
 class TTSRequest(BaseModel):
@@ -43,8 +43,16 @@ async def generate_speech(req: TTSRequest):
         raise HTTPException(status_code=400, detail="Văn bản không được để trống.")
     
     try:
+        # Giải quyết giọng nói preset được chọn
+        voice_dict = None
+        if req.voice and req.voice != "default":
+            try:
+                voice_dict = tts.get_preset_voice(req.voice)
+            except ValueError as e:
+                print(f"[WARNING] Không tìm thấy preset voice '{req.voice}': {e}")
+        
         # Gọi hàm tạo giọng nói
-        audio = tts.infer(text=req.text)
+        audio = tts.infer(text=req.text, voice=voice_dict)
         
         # Lưu ra file tạm rồi đọc dưới dạng bytes để trả về cho Frontend
         temp_file = f"temp_output_{os.getpid()}.wav"

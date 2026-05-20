@@ -13,7 +13,7 @@ import {
 import type { TtsProvider } from "../../../stores/settings-store";
 import { useSettingsStore } from "../../../stores/settings-store";
 import type { ElevenLabsVoice } from "./tts-types";
-import { PIPER_VOICES } from "./tts-constants";
+import { PIPER_VOICES, VIENEU_VOICES } from "./tts-constants";
 
 interface VoiceBrowserProps {
   provider: TtsProvider;
@@ -110,6 +110,51 @@ export const VoiceBrowser: React.FC<VoiceBrowserProps> = ({
       );
     });
   }, [allVoices, voiceSearch]);
+
+  if (provider === "vieneu") {
+    return (
+      <div className="space-y-2">
+        <label className="text-[10px] font-medium text-text-secondary">
+          Voice
+        </label>
+        <div className="flex flex-wrap gap-1.5">
+          {VIENEU_VOICES.map((voice) => (
+            <button
+              key={voice.id}
+              onClick={() => onSelectVoice(voice.id)}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] transition-colors ${
+                selectedVoice === voice.id
+                  ? "bg-primary text-white font-medium"
+                  : "bg-background-tertiary text-text-secondary hover:text-text-primary border border-border"
+              }`}
+            >
+              <User size={10} />
+              <span>{voice.name}</span>
+              <span className="text-[8px] opacity-70">{voice.gender === "female" ? "F" : "M"}</span>
+              {voice.previewUrl && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    previewVoice(voice.previewUrl, voice.id);
+                  }}
+                  className={`ml-1.5 p-0.5 rounded hover:bg-white/20 transition-colors ${
+                    selectedVoice === voice.id ? "text-white" : "text-text-muted hover:text-text-primary"
+                  }`}
+                  title="Preview voice"
+                >
+                  {previewingVoice === voice.id ? (
+                    <Pause size={8} />
+                  ) : (
+                    <Play size={8} />
+                  )}
+                </button>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   if (provider === "piper") {
     return (

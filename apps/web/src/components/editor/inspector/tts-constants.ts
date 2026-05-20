@@ -16,7 +16,13 @@ export const PIPER_VOICES: Voice[] = [
 ];
 
 export const VIENEU_VOICES: Voice[] = [
-  { id: "default", name: "VieNeu Mặc định", gender: "female", language: "vi-VN" },
+  { id: "default", name: "VieNeu Mặc định", gender: "female", language: "vi-VN", previewUrl: "/voices/tuyen.wav" },
+  { id: "Vinh", name: "Nam trầm (Vinh)", gender: "male", language: "vi-VN", previewUrl: "/voices/vinh.wav" },
+  { id: "Binh", name: "Nam trẻ (Bình)", gender: "male", language: "vi-VN", previewUrl: "/voices/binh.wav" },
+  { id: "Tuyen", name: "Nữ truyền cảm (Tuyên)", gender: "female", language: "vi-VN", previewUrl: "/voices/tuyen.wav" },
+  { id: "Doan", name: "Nữ dịu dàng (Đoan)", gender: "female", language: "vi-VN", previewUrl: "/voices/doan.wav" },
+  { id: "Ly", name: "Nữ ấm áp (Ly)", gender: "female", language: "vi-VN", previewUrl: "/voices/ly.wav" },
+  { id: "Ngoc", name: "Nữ trong sáng (Ngọc)", gender: "female", language: "vi-VN", previewUrl: "/voices/ngoc.wav" },
 ];
 
 export const ENHANCE_SYSTEM_PROMPT = `You are a professional voice director transforming text into expressive, emotionally rich scripts for ElevenLabs v3 TTS. Your goal is to turn narration into performance.

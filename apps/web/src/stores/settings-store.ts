@@ -76,6 +76,8 @@ export interface SettingsState {
 
   customOpenAiBaseUrl: string;
   customAnthropicBaseUrl: string;
+  customOpenAiModel: string;
+  customAnthropicModel: string;
 
   // Actions
   setAutoSave: (enabled: boolean) => void;
@@ -93,6 +95,8 @@ export interface SettingsState {
   removeConfiguredService: (serviceId: string) => void;
   setCustomOpenAiBaseUrl: (url: string) => void;
   setCustomAnthropicBaseUrl: (url: string) => void;
+  setCustomOpenAiModel: (model: string) => void;
+  setCustomAnthropicModel: (model: string) => void;
   setCachedElevenLabsVoices: (voices: SettingsState["cachedElevenLabsVoices"]) => void;
   setCachedElevenLabsModels: (models: SettingsState["cachedElevenLabsModels"]) => void;
   clearApiCaches: () => void;
@@ -117,6 +121,8 @@ export const useSettingsStore = create<SettingsState>()(
         configuredServices: [],
         customOpenAiBaseUrl: "",
         customAnthropicBaseUrl: "",
+        customOpenAiModel: "",
+        customAnthropicModel: "",
 
         cachedElevenLabsVoices: null,
         cachedElevenLabsModels: null,
@@ -183,6 +189,8 @@ export const useSettingsStore = create<SettingsState>()(
 
         setCustomOpenAiBaseUrl: (url: string) => set({ customOpenAiBaseUrl: url }),
         setCustomAnthropicBaseUrl: (url: string) => set({ customAnthropicBaseUrl: url }),
+        setCustomOpenAiModel: (model: string) => set({ customOpenAiModel: model }),
+        setCustomAnthropicModel: (model: string) => set({ customAnthropicModel: model }),
 
         setCachedElevenLabsVoices: (voices) =>
           set({ cachedElevenLabsVoices: voices }),
@@ -217,6 +225,8 @@ export const useSettingsStore = create<SettingsState>()(
           configuredServices: state.configuredServices,
           customOpenAiBaseUrl: state.customOpenAiBaseUrl,
           customAnthropicBaseUrl: state.customAnthropicBaseUrl,
+          customOpenAiModel: state.customOpenAiModel,
+          customAnthropicModel: state.customAnthropicModel,
         }),
       },
     ),

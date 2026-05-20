@@ -364,6 +364,12 @@ export const InspectorPanel: React.FC = () => {
     return textIds.length === selectedClipIds.length ? textIds : [];
   }, [selectedClipIds, getTitleEngine, project.modifiedAt]);
 
+  const selectedAdjustableClips = useMemo(() => {
+    return selectedClipIds
+      .map((id) => getClip(id))
+      .filter((clip): clip is Clip => !!clip);
+  }, [selectedClipIds, getClip, project.modifiedAt]);
+
   // Force re-render trigger - increment to force recalculation of engine values
   const [updateCounter, forceUpdate] = React.useReducer((x) => x + 1, 0);
 
@@ -662,6 +668,51 @@ export const InspectorPanel: React.FC = () => {
     defaultAnimationStyle,
     targetLanguage,
   ]);
+
+  const handleVolumeChange = useCallback(
+    (volumePercentage: number) => {
+      const volumeValue = volumePercentage / 100;
+      const targetClipIds = selectedAdjustableClips.map((c) => c.id);
+
+      const tracks = project.timeline.tracks.map((track) => {
+        let trackChanged = false;
+        const newClips = track.clips.map((c) => {
+          // Case 1: The clip itself is in our selection
+          if (targetClipIds.includes(c.id)) {
+            trackChanged = true;
+            return {
+              ...c,
+              volume: volumeValue,
+            };
+          }
+
+          // Case 2: The clip is an audio clip linked to one of our selected video clips
+          if (track.type === "audio") {
+            const linkedClip = selectedAdjustableClips.find((tc) => tc.mediaId === c.mediaId);
+            if (linkedClip) {
+              trackChanged = true;
+              return {
+                ...c,
+                volume: volumeValue,
+              };
+            }
+          }
+
+          return c;
+        });
+        return trackChanged ? { ...track, clips: newClips } : track;
+      });
+
+      useProjectStore.setState({
+        project: {
+          ...project,
+          timeline: { ...project.timeline, tracks },
+          modifiedAt: Date.now(),
+        },
+      });
+    },
+    [selectedAdjustableClips, project],
+  );
 
   // Default transform
   const defaultTransform: Transform = {
@@ -1632,6 +1683,27 @@ export const InspectorPanel: React.FC = () => {
               </Section>
             )}
 
+            {showAudioEffects && selectedAdjustableClips.length === 1 && (
+              <Section title="Volume" sectionId="volume" defaultOpen={true}>
+                <div className="space-y-3 p-3 bg-background-secondary rounded-lg border border-border/50">
+                  <LabeledSlider
+                    label="Volume"
+                    value={Math.round((selectedAdjustableClips[0]?.volume ?? 1) * 100)}
+                    onChange={handleVolumeChange}
+                    min={0}
+                    max={400}
+                    step={1}
+                    unit="%"
+                  />
+                  <div className="flex justify-between text-[10px] text-text-muted mt-1 px-1">
+                    <span>Mute</span>
+                    <span>100% (Normal)</span>
+                    <span>400% (Boost)</span>
+                  </div>
+                </div>
+              </Section>
+            )}
+
             {showAudioEffects && (
               <Section
                 title={noiseReductionSectionTitle}
@@ -1762,6 +1834,48 @@ export const InspectorPanel: React.FC = () => {
                 </div>
               </div>
             )}
+          </>
+        ) : selectedAdjustableClips.length > 1 ? (
+          <>
+            <div className="mb-4 p-3 bg-background-tertiary rounded-lg border border-primary/30">
+              <p className="text-xs text-text-primary font-medium">
+                {selectedAdjustableClips.length} clips selected
+              </p>
+              <p className="text-[10px] text-text-muted">
+                Changes below apply to all selected clips.
+              </p>
+            </div>
+
+            <Section
+              title={`Speed & Direction (${selectedAdjustableClips.length} clips)`}
+              sectionId="speed"
+              defaultOpen={true}
+            >
+              <SpeedSection clips={selectedAdjustableClips} />
+            </Section>
+
+            <Section
+              title={`Volume (${selectedAdjustableClips.length} clips)`}
+              sectionId="volume"
+              defaultOpen={true}
+            >
+              <div className="space-y-3 p-3 bg-background-secondary rounded-lg border border-border/50">
+                <LabeledSlider
+                  label="Volume"
+                  value={Math.round((selectedAdjustableClips[0]?.volume ?? 1) * 100)}
+                  onChange={handleVolumeChange}
+                  min={0}
+                  max={400}
+                  step={1}
+                  unit="%"
+                />
+                <div className="flex justify-between text-[10px] text-text-muted mt-1 px-1">
+                  <span>Mute</span>
+                  <span>100% (Normal)</span>
+                  <span>400% (Boost)</span>
+                </div>
+              </div>
+            </Section>
           </>
         ) : selectedTextClipIds.length > 1 ? (
           <>

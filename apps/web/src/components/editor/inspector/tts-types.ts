@@ -11,6 +11,7 @@ export interface Voice {
   name: string;
   gender: "male" | "female";
   language: string;
+  previewUrl?: string;
 }
 
 export interface ElevenLabsVoice {

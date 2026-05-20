@@ -35,8 +35,12 @@ export const ApiKeysPanel: React.FC = () => {
     removeConfiguredService,
     customOpenAiBaseUrl,
     customAnthropicBaseUrl,
+    customOpenAiModel,
+    customAnthropicModel,
     setCustomOpenAiBaseUrl,
     setCustomAnthropicBaseUrl,
+    setCustomOpenAiModel,
+    setCustomAnthropicModel,
   } = useSettingsStore();
 
   const [passwordSet, setPasswordSet] = useState(false);
@@ -319,38 +323,72 @@ export const ApiKeysPanel: React.FC = () => {
               </div>
 
               {stored.id === "openai" && (
-                <div className="mt-3 space-y-1">
-                  <label className="block text-[11px] font-medium text-text-secondary">
-                    Custom Endpoint Base URL (Optional)
-                  </label>
-                  <Input
-                    type="text"
-                    value={customOpenAiBaseUrl}
-                    onChange={(e) => setCustomOpenAiBaseUrl(e.target.value)}
-                    placeholder="e.g. https://api.openai.com/v1 or custom proxy endpoint"
-                    className="font-mono text-xs"
-                  />
-                  <p className="text-[10px] text-text-muted">
-                    Override default OpenAI API endpoint. Useful for third-party providers (e.g., Mimo, DeepSeek, OpenRouter).
-                  </p>
+                <div className="mt-3 space-y-3">
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-medium text-text-secondary">
+                      Custom Endpoint Base URL (Optional)
+                    </label>
+                    <Input
+                      type="text"
+                      value={customOpenAiBaseUrl}
+                      onChange={(e) => setCustomOpenAiBaseUrl(e.target.value)}
+                      placeholder="e.g. https://api.openai.com/v1 or custom proxy endpoint"
+                      className="font-mono text-xs"
+                    />
+                    <p className="text-[10px] text-text-muted">
+                      Override default OpenAI API endpoint. Useful for third-party providers (e.g., Mimo, DeepSeek, OpenRouter).
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-medium text-text-secondary">
+                      Custom Model Name (Optional)
+                    </label>
+                    <Input
+                      type="text"
+                      value={customOpenAiModel}
+                      onChange={(e) => setCustomOpenAiModel(e.target.value)}
+                      placeholder="e.g. mimo-v2.5-pro, deepseek-chat (leave blank for auto-detect)"
+                      className="font-mono text-xs"
+                    />
+                    <p className="text-[10px] text-text-muted">
+                      Optional. For MiMo (xiaomimimo.com), defaults to <strong>mimo-v2.5-pro</strong> automatically. For standard OpenAI, defaults to <code>gpt-4o-mini</code>.
+                    </p>
+                  </div>
                 </div>
               )}
 
               {stored.id === "anthropic" && (
-                <div className="mt-3 space-y-1">
-                  <label className="block text-[11px] font-medium text-text-secondary">
-                    Custom Endpoint Base URL (Optional)
-                  </label>
-                  <Input
-                    type="text"
-                    value={customAnthropicBaseUrl}
-                    onChange={(e) => setCustomAnthropicBaseUrl(e.target.value)}
-                    placeholder="e.g. https://api.anthropic.com/v1 or custom proxy endpoint"
-                    className="font-mono text-xs"
-                  />
-                  <p className="text-[10px] text-text-muted">
-                    Override default Anthropic API endpoint. Useful for compatible custom proxy endpoints.
-                  </p>
+                <div className="mt-3 space-y-3">
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-medium text-text-secondary">
+                      Custom Endpoint Base URL (Optional)
+                    </label>
+                    <Input
+                      type="text"
+                      value={customAnthropicBaseUrl}
+                      onChange={(e) => setCustomAnthropicBaseUrl(e.target.value)}
+                      placeholder="e.g. https://api.anthropic.com/v1 or custom proxy endpoint"
+                      className="font-mono text-xs"
+                    />
+                    <p className="text-[10px] text-text-muted">
+                      Override default Anthropic API endpoint. Useful for compatible custom proxy endpoints.
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-medium text-text-secondary">
+                      Custom Model Name (Optional)
+                    </label>
+                    <Input
+                      type="text"
+                      value={customAnthropicModel}
+                      onChange={(e) => setCustomAnthropicModel(e.target.value)}
+                      placeholder="e.g. claude-3-5-sonnet-20241022 (default: claude-3-5-haiku-20241022)"
+                      className="font-mono text-xs"
+                    />
+                    <p className="text-[10px] text-text-muted">
+                      Specify the custom model name to use when calling your custom endpoint.
+                    </p>
+                  </div>
                 </div>
               )}
 

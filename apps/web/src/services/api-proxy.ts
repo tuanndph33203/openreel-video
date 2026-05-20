@@ -8,7 +8,6 @@
 
 import { useSettingsStore } from "../stores/settings-store";
 
-const isDev = import.meta.env.DEV;
 
 const DIRECT_CONFIG = {
   elevenlabs: {
@@ -65,41 +64,20 @@ export async function apiFetch(
     console.error("Failed to read settings store in apiFetch:", e);
   }
 
-  // If we are in development, call directly. If a custom base URL is specified,
-  // we must route through the backend proxy in production to avoid browser CORS issues.
-  if (isDev) {
-    const config = DIRECT_CONFIG[service];
-    const baseUrl = customBaseUrl || config.baseUrl;
-    const url = `${baseUrl}${path}`;
-    return fetch(url, {
-      ...options,
-      headers: {
-        ...config.authHeaders(apiKey),
-        ...extraHeaders,
-      },
-    });
-  }
-
-  // Production environment with custom endpoint: route through same-origin proxy
-  if (customBaseUrl) {
-    const url = `/api/proxy/${service}${path}`;
-    return fetch(url, {
-      ...options,
-      headers: {
-        "x-proxy-api-key": apiKey,
-        "x-proxy-base-url": customBaseUrl,
-        ...extraHeaders,
-      },
-    });
-  }
-
-  // Production with default endpoints: route through same-origin proxy
+  // Luôn đi qua cùng nguồn proxy /api/proxy/ để máy chủ Node.js/Cloudflare thực hiện cuộc gọi chéo miền
+  // Giúp giải quyết triệt để lỗi mất tiêu đề Authorization do CORS preflight của trình duyệt
   const url = `/api/proxy/${service}${path}`;
+  const proxyHeaders: Record<string, string> = {
+    "x-proxy-api-key": apiKey,
+    ...extraHeaders,
+  };
+
+  if (customBaseUrl) {
+    proxyHeaders["x-proxy-base-url"] = customBaseUrl;
+  }
+
   return fetch(url, {
     ...options,
-    headers: {
-      "x-proxy-api-key": apiKey,
-      ...extraHeaders,
-    },
+    headers: proxyHeaders,
   });
 }

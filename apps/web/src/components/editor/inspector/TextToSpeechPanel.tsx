@@ -154,7 +154,9 @@ export const TextToSpeechPanel: React.FC = () => {
     setSelectedVoice(
       newProvider === "elevenlabs"
         ? (favoriteVoices.length > 0 ? favoriteVoices[0].voiceId : "")
-        : "amy",
+        : newProvider === "vieneu"
+          ? "default"
+          : "amy",
     );
     setGeneratedAudio(null);
   }, [provider, warnUnsavedAudio, favoriteVoices, setGeneratedAudio]);
