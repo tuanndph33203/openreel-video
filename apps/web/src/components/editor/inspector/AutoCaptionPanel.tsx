@@ -97,10 +97,21 @@ export const AutoCaptionPanel: React.FC = () => {
         setProgress,
       );
 
+      const addVideoEffect = useProjectStore.getState().addVideoEffect;
+
       for (const subtitle of subtitles) {
         await addSubtitle({
           ...subtitle,
           animationStyle,
+        });
+      }
+
+      // Add horizontal blur effect to cover hard subs
+      if (selectedClip && addVideoEffect) {
+        addVideoEffect(selectedClip.id, "blur", {
+          radius: 12,
+          type: "gaussian",
+          maskY: 0.85,
         });
       }
 

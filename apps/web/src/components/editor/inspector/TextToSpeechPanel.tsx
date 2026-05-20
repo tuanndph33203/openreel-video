@@ -110,6 +110,24 @@ export const TextToSpeechPanel: React.FC = () => {
     favoriteVoices,
     generateWithElevenLabs,
     generateWithPiper,
+    generateWithVieNeu: useCallback(async (text: string, voice: string, speed: number, signal?: AbortSignal) => {
+      try {
+        const response = await fetch("http://localhost:8000/tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text, voice, speed }),
+          signal,
+        });
+        if (!response.ok) {
+          const errData = await response.json().catch(() => null);
+          throw new Error(errData?.detail || `API error: ${response.status}`);
+        }
+        return await response.blob();
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") throw err;
+        throw new Error("Không thể kết nối đến máy chủ VieNeu TTS cục bộ. Vui lòng kiểm tra chắc chắn bạn đã khởi động Python server.");
+      }
+    }, []),
     enhanceViaLlm,
     setText,
     setError,
@@ -373,7 +391,7 @@ export const TextToSpeechPanel: React.FC = () => {
       )}
 
       <p className="text-[9px] text-text-muted text-center">
-        Powered by {provider === "elevenlabs" ? "ElevenLabs" : "Piper TTS"}
+        Powered by {provider === "elevenlabs" ? "ElevenLabs" : provider === "vieneu" ? "VieNeu-TTS" : "Piper TTS"}
         {provider === "elevenlabs" && ` · ${getSelectedModelName()}`}
       </p>
     </div>

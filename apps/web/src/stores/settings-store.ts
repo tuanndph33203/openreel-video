@@ -46,7 +46,7 @@ export const SERVICE_REGISTRY: readonly ServiceConfig[] = [
   },
 ] as const;
 
-export type TtsProvider = "piper" | "elevenlabs";
+export type TtsProvider = "piper" | "elevenlabs" | "vieneu";
 export type LlmProvider = "openai" | "anthropic";
 export type AggregatorProvider = "kie-ai" | "freepik";
 export type SettingsTab = "general" | "api-keys";
