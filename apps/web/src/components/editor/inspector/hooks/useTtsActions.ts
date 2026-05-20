@@ -17,6 +17,7 @@ interface UseTtsActionsOptions {
   favoriteVoices: Array<{ voiceId: string; name: string; previewUrl?: string }>;
   generateWithElevenLabs: (text: string, voiceId: string, signal?: AbortSignal) => Promise<Blob>;
   generateWithPiper: (text: string, voice: string, speed: number, signal?: AbortSignal) => Promise<Blob>;
+  generateWithVieNeu: (text: string, voice: string, speed: number, signal?: AbortSignal) => Promise<Blob>;
   enhanceViaLlm: (text: string, signal?: AbortSignal) => Promise<string>;
   setText: (text: string) => void;
   setError: (error: string | null) => void;
@@ -56,6 +57,7 @@ export function useTtsActions(options: UseTtsActionsOptions): UseTtsActionsRetur
     favoriteVoices,
     generateWithElevenLabs,
     generateWithPiper,
+    generateWithVieNeu,
     enhanceViaLlm,
     setText,
     setError,
@@ -129,6 +131,9 @@ export function useTtsActions(options: UseTtsActionsOptions): UseTtsActionsRetur
     if (provider === "piper") {
       return PIPER_VOICES.find((v) => v.id === selectedVoice)?.name ?? "TTS";
     }
+    if (provider === "vieneu") {
+      return "VieNeu-TTS";
+    }
     const fav = favoriteVoices.find((v) => v.voiceId === selectedVoice);
     if (fav) return fav.name;
     const apiVoice = allVoices.find((v) => v.voice_id === selectedVoice);
@@ -178,7 +183,9 @@ export function useTtsActions(options: UseTtsActionsOptions): UseTtsActionsRetur
 
       const blob = provider === "elevenlabs"
         ? await generateWithElevenLabs(finalText, selectedVoice, controller.signal)
-        : await generateWithPiper(finalText, selectedVoice, speed, controller.signal);
+        : provider === "vieneu"
+          ? await generateWithVieNeu(finalText, selectedVoice, speed, controller.signal)
+          : await generateWithPiper(finalText, selectedVoice, speed, controller.signal);
 
       storeSetAudio(blob);
 
@@ -192,7 +199,7 @@ export function useTtsActions(options: UseTtsActionsOptions): UseTtsActionsRetur
     } finally {
       setIsGenerating(false);
     }
-  }, [text, enhancedPreview, enhanceText, selectedVoice, speed, provider, generateWithPiper, generateWithElevenLabs, setError, storeSetAudio]);
+  }, [text, enhancedPreview, enhanceText, selectedVoice, speed, provider, generateWithPiper, generateWithElevenLabs, generateWithVieNeu, setError, storeSetAudio]);
 
   const getOrCreateTtsTrackId = useCallback(async (): Promise<string> => {
     const currentProject = useProjectStore.getState().project;
@@ -237,11 +244,14 @@ export function useTtsActions(options: UseTtsActionsOptions): UseTtsActionsRetur
     async (inputText: string, signal?: AbortSignal): Promise<Blob> => {
       return provider === "elevenlabs"
         ? generateWithElevenLabs(inputText, selectedVoice, signal)
-        : generateWithPiper(inputText, selectedVoice, speed, signal);
+        : provider === "vieneu"
+          ? generateWithVieNeu(inputText, selectedVoice, speed, signal)
+          : generateWithPiper(inputText, selectedVoice, speed, signal);
     },
     [
       generateWithElevenLabs,
       generateWithPiper,
+      generateWithVieNeu,
       provider,
       selectedVoice,
       speed,

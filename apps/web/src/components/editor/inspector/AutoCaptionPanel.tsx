@@ -413,8 +413,8 @@ export const AutoCaptionPanel: React.FC = () => {
         selectedMedia,
         setProgress,
       );
-
-      for (const subtitle of subtitlesResult) {
+      const addVideoEffect = useProjectStore.getState().addVideoEffect;
+      for (const subtitle of subtitles) {
         await addSubtitle({
           ...subtitle,
           animationStyle,
@@ -422,6 +422,16 @@ export const AutoCaptionPanel: React.FC = () => {
       }
 
       setLastCaptionCount(subtitlesResult.length);
+      // Add horizontal blur effect to cover hard subs
+      if (selectedClip && addVideoEffect) {
+        addVideoEffect(selectedClip.id, "blur", {
+          radius: 12,
+          type: "gaussian",
+          maskY: 0.85,
+        });
+      }
+
+      setLastCaptionCount(subtitles.length);
       setProgress({
         phase: "complete",
         progress: 100,

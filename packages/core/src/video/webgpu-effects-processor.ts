@@ -21,6 +21,7 @@ export interface EffectParams {
 export interface BlurParams {
   radius: number;
   sigma?: number;
+  maskY?: number;
 }
 
 export interface EffectsProcessorConfig {
@@ -256,10 +257,12 @@ export class WebGPUEffectsProcessor {
       const blurParams = blurEffect.params as {
         radius?: number;
         sigma?: number;
+        maskY?: number;
       };
       this.applyBlur(commandEncoder, {
         radius: blurParams.radius ?? 0,
         sigma: blurParams.sigma,
+        maskY: blurParams.maskY,
       });
     }
 
@@ -409,6 +412,7 @@ export class WebGPUEffectsProcessor {
       params.sigma ?? params.radius / 3,
       dirX,
       dirY,
+      params.maskY ?? 0
     );
     this.device.queue.writeBuffer(
       this.blurUniformBuffer!,
