@@ -30,8 +30,14 @@ import { MasterPasswordDialog } from "./MasterPasswordDialog";
 import { toast } from "../../../stores/notification-store";
 
 export const ApiKeysPanel: React.FC = () => {
-  const { addConfiguredService, removeConfiguredService } =
-    useSettingsStore();
+  const {
+    addConfiguredService,
+    removeConfiguredService,
+    customOpenAiBaseUrl,
+    customAnthropicBaseUrl,
+    setCustomOpenAiBaseUrl,
+    setCustomAnthropicBaseUrl,
+  } = useSettingsStore();
 
   const [passwordSet, setPasswordSet] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
@@ -312,6 +318,42 @@ export const ApiKeysPanel: React.FC = () => {
                   : "••••••••••••••••••••••••••••••••"}
               </div>
 
+              {stored.id === "openai" && (
+                <div className="mt-3 space-y-1">
+                  <label className="block text-[11px] font-medium text-text-secondary">
+                    Custom Endpoint Base URL (Optional)
+                  </label>
+                  <Input
+                    type="text"
+                    value={customOpenAiBaseUrl}
+                    onChange={(e) => setCustomOpenAiBaseUrl(e.target.value)}
+                    placeholder="e.g. https://api.openai.com/v1 or custom proxy endpoint"
+                    className="font-mono text-xs"
+                  />
+                  <p className="text-[10px] text-text-muted">
+                    Override default OpenAI API endpoint. Useful for third-party providers (e.g., Mimo, DeepSeek, OpenRouter).
+                  </p>
+                </div>
+              )}
+
+              {stored.id === "anthropic" && (
+                <div className="mt-3 space-y-1">
+                  <label className="block text-[11px] font-medium text-text-secondary">
+                    Custom Endpoint Base URL (Optional)
+                  </label>
+                  <Input
+                    type="text"
+                    value={customAnthropicBaseUrl}
+                    onChange={(e) => setCustomAnthropicBaseUrl(e.target.value)}
+                    placeholder="e.g. https://api.anthropic.com/v1 or custom proxy endpoint"
+                    className="font-mono text-xs"
+                  />
+                  <p className="text-[10px] text-text-muted">
+                    Override default Anthropic API endpoint. Useful for compatible custom proxy endpoints.
+                  </p>
+                </div>
+              )}
+
               <div className="text-[10px] text-text-muted mt-2">
                 Added {new Date(stored.createdAt).toLocaleDateString()} &middot;
                 Updated {new Date(stored.updatedAt).toLocaleDateString()}
@@ -339,6 +381,43 @@ export const ApiKeysPanel: React.FC = () => {
             autoFocus
             className="mb-3 font-mono text-xs"
           />
+
+          {addingService === "openai" && (
+            <div className="mb-3 space-y-1 text-left">
+              <label className="block text-[11px] font-medium text-text-secondary">
+                Custom Endpoint Base URL (Optional)
+              </label>
+              <Input
+                type="text"
+                value={customOpenAiBaseUrl}
+                onChange={(e) => setCustomOpenAiBaseUrl(e.target.value)}
+                placeholder="e.g. https://api.openai.com/v1 or custom proxy endpoint"
+                className="font-mono text-xs mb-1"
+              />
+              <p className="text-[10px] text-text-muted">
+                Override default OpenAI API endpoint. Useful for third-party providers (e.g., Mimo, DeepSeek, OpenRouter).
+              </p>
+            </div>
+          )}
+
+          {addingService === "anthropic" && (
+            <div className="mb-3 space-y-1 text-left">
+              <label className="block text-[11px] font-medium text-text-secondary">
+                Custom Endpoint Base URL (Optional)
+              </label>
+              <Input
+                type="text"
+                value={customAnthropicBaseUrl}
+                onChange={(e) => setCustomAnthropicBaseUrl(e.target.value)}
+                placeholder="e.g. https://api.anthropic.com/v1 or custom proxy endpoint"
+                className="font-mono text-xs mb-1"
+              />
+              <p className="text-[10px] text-text-muted">
+                Override default Anthropic API endpoint. Useful for compatible custom proxy endpoints.
+              </p>
+            </div>
+          )}
+
           <div className="flex justify-end gap-2">
             <Button
               variant="outline"

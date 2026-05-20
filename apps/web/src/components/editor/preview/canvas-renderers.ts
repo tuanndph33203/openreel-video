@@ -11,6 +11,8 @@ import {
   AnimationEngine,
   type Keyframe,
   type EmphasisAnimation,
+  titleEngine,
+  getTextMaxWidth,
 } from "@openreel/core";
 import * as THREE from "three";
 
@@ -678,15 +680,30 @@ export const renderTextClipToCanvas = (
     ctx.shadowOffsetY = style.shadowOffsetY || 0;
   }
 
-  const lines = visibleText.split("\n");
+  const maxWidth = getTextMaxWidth(textClip, canvasWidth);
+  const metrics = titleEngine.measureText(visibleText, style, maxWidth);
+  const lines = metrics.lines.map((l) => l.text);
   const lineHeight = style.fontSize * style.lineHeight;
-  const totalHeight = lines.length * lineHeight;
+  const totalHeight = metrics.height;
   let startY = -totalHeight / 2 + lineHeight / 2;
 
   if (style.verticalAlign === "top") {
     startY = 0;
   } else if (style.verticalAlign === "bottom") {
     startY = -totalHeight;
+  }
+
+  if (style.backgroundColor) {
+    const bgWidth = metrics.width + 20;
+    const bgHeight = totalHeight;
+    ctx.fillStyle = style.backgroundColor;
+    let bgX = -bgWidth / 2;
+    if (style.textAlign === "left") {
+      bgX = -10;
+    } else if (style.textAlign === "right") {
+      bgX = -bgWidth + 10;
+    }
+    ctx.fillRect(bgX, -bgHeight / 2, bgWidth, bgHeight);
   }
 
   if (characterStates && characterStates.length > 0) {
@@ -742,11 +759,17 @@ export const renderTextClipToCanvas = (
       const y = startY + i * lineHeight;
 
       if (style.backgroundColor) {
-        const metrics = ctx.measureText(line);
-        const bgWidth = metrics.width + 20;
+        const lineMetrics = ctx.measureText(line);
+        const bgWidth = lineMetrics.width + 20;
         const bgHeight = lineHeight;
         ctx.fillStyle = style.backgroundColor;
-        ctx.fillRect(-bgWidth / 2, y - bgHeight / 2, bgWidth, bgHeight);
+        let bgX = -bgWidth / 2;
+        if (style.textAlign === "left") {
+          bgX = -10;
+        } else if (style.textAlign === "right") {
+          bgX = -bgWidth + 10;
+        }
+        ctx.fillRect(bgX, y - bgHeight / 2, bgWidth, bgHeight);
       }
 
       if (style.strokeColor && style.strokeWidth) {

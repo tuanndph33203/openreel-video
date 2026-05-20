@@ -6,6 +6,7 @@ import type {
   SVGClip,
   StickerClip,
 } from "@openreel/core";
+import { titleEngine, getTextMaxWidth } from "@openreel/core";
 import type { BlendMode } from "@openreel/core";
 
 // Map CSS blend modes to THREE.js blending constants
@@ -113,19 +114,46 @@ export class ThreeJSLayerRenderer {
       ctx.shadowOffsetY = style.shadowOffsetY || 0;
     }
 
-    if (style.strokeColor && style.strokeWidth) {
-      ctx.strokeStyle = style.strokeColor;
-      ctx.lineWidth = style.strokeWidth;
+    const maxWidth = getTextMaxWidth(textClip, _canvasWidth);
+    const metrics = titleEngine.measureText(textClip.text, style, maxWidth);
+    const lines = metrics.lines.map((l) => l.text);
+    const lineHeight = style.fontSize * style.lineHeight;
+    const totalHeight = metrics.height;
+
+    if (style.backgroundColor) {
+      const bgWidth = metrics.width + 20;
+      const bgHeight = totalHeight;
+      ctx.fillStyle = style.backgroundColor;
+      let bgX = _canvasWidth / 2 - bgWidth / 2;
+      if (style.textAlign === "left") {
+        bgX = _canvasWidth / 2 - 10;
+      } else if (style.textAlign === "right") {
+        bgX = _canvasWidth / 2 - bgWidth + 10;
+      }
+      ctx.fillRect(bgX, _canvasHeight / 2 - bgHeight / 2, bgWidth, bgHeight);
     }
 
-    const lines = textClip.text.split("\n");
-    const lineHeight = style.fontSize * style.lineHeight;
-
     lines.forEach((line, index) => {
-      const y =
-        _canvasHeight / 2 + (index - (lines.length - 1) / 2) * lineHeight;
+      const startY = _canvasHeight / 2 - totalHeight / 2 + lineHeight / 2;
+      const y = startY + index * lineHeight;
+
+      if (style.backgroundColor) {
+        const lineMetrics = ctx.measureText(line);
+        const bgWidth = lineMetrics.width + 20;
+        const bgHeight = lineHeight;
+        ctx.fillStyle = style.backgroundColor;
+        let bgX = _canvasWidth / 2 - bgWidth / 2;
+        if (style.textAlign === "left") {
+          bgX = _canvasWidth / 2 - 10;
+        } else if (style.textAlign === "right") {
+          bgX = _canvasWidth / 2 - bgWidth + 10;
+        }
+        ctx.fillRect(bgX, y - bgHeight / 2, bgWidth, bgHeight);
+      }
 
       if (style.strokeColor && style.strokeWidth) {
+        ctx.strokeStyle = style.strokeColor;
+        ctx.lineWidth = style.strokeWidth;
         ctx.strokeText(line, _canvasWidth / 2, y);
       }
       ctx.fillText(line, _canvasWidth / 2, y);

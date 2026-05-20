@@ -313,7 +313,7 @@ export class FFmpegFallback {
       this.setupProgressTracking(options.onProgress);
 
       const args = ["-i", inputFilename];
-      if (streamIndex !== undefined) {
+      if (streamIndex !== undefined && streamIndex > 0) {
         args.push("-map", `0:a:${streamIndex}`);
       } else {
         args.push("-vn");

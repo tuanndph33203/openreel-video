@@ -8,9 +8,10 @@ import {
   Square,
   FolderOpen,
 } from "lucide-react";
-import { Button, Switch, Label } from "@openreel/ui";
+import { Button, Switch, Label, Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, Input } from "@openreel/ui";
 import { useProjectStore } from "../../stores/project-store";
 import { useUIStore } from "../../stores/ui-store";
+import { autoSaveManager } from "../../services/auto-save";
 import { SOCIAL_MEDIA_PRESETS, type SocialMediaCategory } from "@openreel/core";
 import { TemplateGallery } from "./TemplateGallery";
 import { RecentProjects } from "./RecentProjects";
@@ -145,27 +146,93 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ initialTab }) => {
   const [viewMode, setViewMode] = useState<ViewMode>(initialTab ?? "home");
   const [hoveredFormat, setHoveredFormat] = useState<string | null>(null);
 
+  // States for creating project dialog with validation
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [selectedOption, setSelectedOption] = useState<FormatOption | null>(null);
+  const [newProjectName, setNewProjectName] = useState("");
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [activeSaves, setActiveSaves] = useState<any[]>([]);
+
   useEditorPreload(true);
 
   const handleCreateProject = useCallback(
-    (option: FormatOption) => {
-      const preset = SOCIAL_MEDIA_PRESETS[option.preset];
-      createNewProject(`New ${option.label} Video`, {
-        width: preset.width,
-        height: preset.height,
-        frameRate: preset.frameRate,
-      });
-      track(AnalyticsEvents.PROJECT_CREATED, {
-        preset: option.preset,
-        width: preset.width,
-        height: preset.height,
-        frameRate: preset.frameRate ?? 30,
-        source: "quick_start",
-      });
-      navigate("editor");
+    async (option: FormatOption) => {
+      let uniqueName = `New ${option.label} Video`;
+      let saves: any[] = [];
+      try {
+        await autoSaveManager.initialize();
+        saves = await autoSaveManager.checkForRecovery();
+        const existingNames = new Set(saves.map((s) => s.projectName.trim().toLowerCase()));
+        
+        let counter = 1;
+        while (existingNames.has(uniqueName.toLowerCase())) {
+          uniqueName = `New ${option.label} Video (${counter})`;
+          counter++;
+        }
+      } catch (err) {
+        console.warn("Failed to check duplicate names during quick creation:", err);
+      }
+
+      setSelectedOption(option);
+      setNewProjectName(uniqueName);
+      setNameError(null);
+      setActiveSaves(saves);
+      setIsCreateDialogOpen(true);
     },
-    [createNewProject, navigate, track],
+    []
   );
+
+  const handleConfirmCreate = useCallback(() => {
+    if (!selectedOption || !newProjectName.trim()) return;
+
+    const trimmedName = newProjectName.trim();
+    
+    // Final check for duplicates
+    const isDuplicate = activeSaves.some(
+      (s) => s.projectName.trim().toLowerCase() === trimmedName.toLowerCase()
+    );
+
+    if (isDuplicate) {
+      setNameError("Tên dự án này đã được sử dụng.");
+      return;
+    }
+
+    const preset = SOCIAL_MEDIA_PRESETS[selectedOption.preset];
+    createNewProject(trimmedName, {
+      width: preset.width,
+      height: preset.height,
+      frameRate: preset.frameRate,
+    });
+    track(AnalyticsEvents.PROJECT_CREATED, {
+      preset: selectedOption.preset,
+      width: preset.width,
+      height: preset.height,
+      frameRate: preset.frameRate ?? 30,
+      source: "quick_start",
+    });
+    setIsCreateDialogOpen(false);
+    navigate("editor");
+  }, [selectedOption, newProjectName, activeSaves, createNewProject, track, navigate]);
+
+  // Real-time duplicate check when user types
+  const handleNameChange = useCallback((value: string) => {
+    setNewProjectName(value);
+    const trimmed = value.trim();
+    if (!trimmed) {
+      setNameError("Tên dự án không được để trống.");
+      return;
+    }
+
+    const isDuplicate = activeSaves.some(
+      (s) => s.projectName.trim().toLowerCase() === trimmed.toLowerCase()
+    );
+
+    if (isDuplicate) {
+      setNameError("Tên dự án này đã được sử dụng.");
+    } else {
+      setNameError(null);
+    }
+  }, [activeSaves]);
 
   const handleTemplateApplied = useCallback(() => {
     navigate("editor");
@@ -390,6 +457,78 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ initialTab }) => {
           </p>
         </div>
       </div>
+
+      <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+        <DialogContent className="max-w-md p-0 gap-0 bg-background border-border overflow-hidden shadow-2xl">
+          <DialogHeader className="p-5 border-b border-border flex flex-row items-center gap-3 space-y-0">
+            {selectedOption && (
+              <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-primary/10">
+                {(() => {
+                  const IconComponent = selectedOption.icon;
+                  return <IconComponent className="text-primary animate-pulse" size={20} />;
+                })()}
+              </div>
+            )}
+            <div>
+              <DialogTitle className="text-lg font-semibold text-text-primary">
+                Tạo dự án mới
+              </DialogTitle>
+              <DialogDescription className="text-xs text-text-muted mt-0.5">
+                Nhập tên để khởi tạo dự án định dạng {selectedOption?.label} ({selectedOption?.dimensions})
+              </DialogDescription>
+            </div>
+          </DialogHeader>
+
+          <div className="p-5 space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="project-name-input" className="text-xs font-medium text-text-secondary">
+                Tên dự án <span className="text-red-400">*</span>
+              </Label>
+              <Input
+                id="project-name-input"
+                type="text"
+                value={newProjectName}
+                onChange={(e) => handleNameChange(e.target.value)}
+                placeholder="Tên dự án..."
+                className="bg-background-secondary border-border text-text-primary h-10 px-3 focus-visible:ring-1 focus-visible:ring-primary/50"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !nameError && newProjectName.trim()) {
+                    handleConfirmCreate();
+                  }
+                }}
+              />
+              {nameError ? (
+                <p className="text-xs text-red-500 font-medium flex items-center gap-1 mt-1.5">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-500" />
+                  {nameError}
+                </p>
+              ) : (
+                <p className="text-[10px] text-text-muted">
+                  Tên này được sử dụng để quản lý dự án trong IndexedDB.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter className="p-4 bg-background-secondary border-t border-border flex items-center justify-end gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => setIsCreateDialogOpen(false)}
+              className="rounded-lg text-sm text-text-secondary hover:text-text-primary"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleConfirmCreate}
+              disabled={!!nameError || !newProjectName.trim()}
+              className="rounded-lg text-sm font-medium px-4 h-9"
+            >
+              Create Project
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

@@ -28,7 +28,7 @@ export function useKeyboardShortcuts() {
     deleteSVGClip,
   } = useProjectStore();
 
-  const { getSelectedClipIds, clearSelection, toggleSnap, select } =
+  const { getSelectedClipIds, clearSelection, toggleSnap, selectMultiple } =
     useUIStore();
   const {
     togglePlayback,
@@ -248,12 +248,58 @@ export function useKeyboardShortcuts() {
   }, [getSelectedClipIds, playheadPosition]);
 
   const handleSelectAll = useCallback(() => {
+    const titleEngine = useEngineStore.getState().getTitleEngine();
+    const graphicsEngine = useEngineStore.getState().getGraphicsEngine();
+
+    const allTextClips = titleEngine?.getAllTextClips() ?? [];
+    const allShapeClips = graphicsEngine
+      ? [
+          ...(graphicsEngine.getAllShapeClips() ?? []),
+          ...(graphicsEngine.getAllSVGClips() ?? []),
+          ...(graphicsEngine.getAllStickerClips() ?? []),
+        ]
+      : [];
+
+    const textClipIds = new Set(allTextClips.map((clip) => clip.id));
+    const shapeClipIds = new Set(allShapeClips.map((clip) => clip.id));
+
+    const selectedItems: any[] = [];
+
     for (const track of project.timeline.tracks) {
-      for (const clip of track.clips) {
-        select({ id: clip.id, type: "clip" });
-      }
+      // 1. Regular clips
+      const clips = track.clips
+        .filter((clip) => !textClipIds.has(clip.id))
+        .filter((clip) => !shapeClipIds.has(clip.id))
+        .map((clip) => ({
+          type: "clip" as const,
+          id: clip.id,
+          trackId: track.id,
+        }));
+      selectedItems.push(...clips);
+
+      // 2. Text clips on this track
+      const textClips = allTextClips
+        .filter((clip) => clip.trackId === track.id)
+        .map((clip) => ({
+          type: "text-clip" as const,
+          id: clip.id,
+          trackId: track.id,
+        }));
+      selectedItems.push(...textClips);
+
+      // 3. Shape clips on this track
+      const shapeClips = allShapeClips
+        .filter((clip) => clip.trackId === track.id)
+        .map((clip) => ({
+          type: "shape-clip" as const,
+          id: clip.id,
+          trackId: track.id,
+        }));
+      selectedItems.push(...shapeClips);
     }
-  }, [select, project.timeline.tracks]);
+
+    selectMultiple(selectedItems);
+  }, [selectMultiple, project.timeline.tracks]);
 
   const handleDeselect = useCallback(() => {
     clearSelection();

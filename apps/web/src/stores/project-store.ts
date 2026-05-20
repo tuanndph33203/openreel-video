@@ -55,6 +55,7 @@ import {
 } from "../services/auto-save";
 import { useEngineStore } from "./engine-store";
 import { getMediaBridge, initializeMediaBridge } from "../bridges/media-bridge";
+import { getGraphicsBridge } from "../bridges/graphics-bridge";
 import {
   createEmptyProject,
   calculateTimelineDuration,
@@ -1090,7 +1091,7 @@ export const useProjectStore = create<ProjectState>()(
 
         const snapshot = {
           track: buildEditingTemplateTrack(trackType),
-          position: 0,
+          position: updatedProject.timeline.tracks.length,
         };
         trackSnapshots.push(snapshot);
         updatedProject = insertEditingTemplateTrack(updatedProject, snapshot);
@@ -1576,6 +1577,17 @@ export const useProjectStore = create<ProjectState>()(
         const newExecutor = new ActionExecutor(newHistory);
         const previousProject = get().project;
         const nextProject = createEmptyProject(name, settings);
+
+        // Clear engine singletons to prevent caching subtitles or shapes from old projects
+        const titleEngine = useEngineStore.getState().getTitleEngine();
+        const graphicsEngine = useEngineStore.getState().getGraphicsEngine();
+        if (titleEngine) {
+          titleEngine.clear();
+        }
+        if (graphicsEngine) {
+          graphicsEngine.clearCache();
+        }
+        getGraphicsBridge().clear();
 
         syncProjectEffectsBridge(nextProject, previousProject);
         syncProjectTransitionsBridge(nextProject, previousProject);
@@ -4598,6 +4610,7 @@ export const useProjectStore = create<ProjectState>()(
               y: posY,
             },
           },
+          metadata: { isCaption: true },
         });
 
         const { clipUndoStack } = get();
@@ -4606,6 +4619,7 @@ export const useProjectStore = create<ProjectState>()(
           clipId: textClip.id,
           trackId: targetTrack.id,
           clipData: { ...textClip },
+          timestamp: Date.now(),
         };
 
         set((state) => {
@@ -4631,8 +4645,13 @@ export const useProjectStore = create<ProjectState>()(
        */
       removeSubtitle: (subtitleId) => {
         const titleEngine = useEngineStore.getState().getTitleEngine();
+        const relatedIds = [
+          subtitleId,
+          `${subtitleId}-translated`,
+          subtitleId.replace("-translated", ""),
+        ];
         if (titleEngine) {
-          titleEngine.deleteTextClip(subtitleId);
+          relatedIds.forEach((id) => titleEngine.deleteTextClip(id));
         }
         set((state) => ({
           project: {
@@ -4640,7 +4659,7 @@ export const useProjectStore = create<ProjectState>()(
             timeline: {
               ...state.project.timeline,
               subtitles: state.project.timeline.subtitles.filter(
-                (s) => s.id !== subtitleId,
+                (s) => !relatedIds.includes(s.id),
               ),
             },
             modifiedAt: Date.now(),
@@ -5320,20 +5339,30 @@ export const useProjectStore = create<ProjectState>()(
         if (!titleEngine) {
           return false;
         }
-        const deleted = titleEngine.deleteTextClip(clipId);
+        const relatedIds = [
+          clipId,
+          `${clipId}-translated`,
+          clipId.replace("-translated", ""),
+        ];
+        let anyDeleted = false;
+        relatedIds.forEach((id) => {
+          if (titleEngine.deleteTextClip(id)) {
+            anyDeleted = true;
+          }
+        });
         const { project } = get();
         const hasSubtitle = project.timeline.subtitles.some(
-          (s) => s.id === clipId,
+          (s) => relatedIds.includes(s.id),
         );
 
-        if (deleted || hasSubtitle) {
+        if (anyDeleted || hasSubtitle) {
           set({
             project: {
               ...project,
               timeline: {
                 ...project.timeline,
                 subtitles: project.timeline.subtitles.filter(
-                  (s) => s.id !== clipId,
+                  (s) => !relatedIds.includes(s.id),
                 ),
               },
               modifiedAt: Date.now(),
@@ -5341,7 +5370,7 @@ export const useProjectStore = create<ProjectState>()(
           });
           return true;
         }
-        return deleted;
+        return anyDeleted;
       },
 
       // Photo editing actions

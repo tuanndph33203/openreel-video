@@ -6,6 +6,8 @@
  * API keys never leave the same origin.
  */
 
+import { useSettingsStore } from "../stores/settings-store";
+
 const isDev = import.meta.env.DEV;
 
 const DIRECT_CONFIG = {
@@ -50,9 +52,25 @@ export async function apiFetch(
 ): Promise<Response> {
   const extraHeaders = (options.headers ?? {}) as Record<string, string>;
 
+  // Check if there is a custom base URL configured in the settings store
+  let customBaseUrl = "";
+  try {
+    const settingsState = useSettingsStore.getState();
+    if (service === "openai" && settingsState.customOpenAiBaseUrl) {
+      customBaseUrl = settingsState.customOpenAiBaseUrl.trim().replace(/\/$/, "");
+    } else if (service === "anthropic" && settingsState.customAnthropicBaseUrl) {
+      customBaseUrl = settingsState.customAnthropicBaseUrl.trim().replace(/\/$/, "");
+    }
+  } catch (e) {
+    console.error("Failed to read settings store in apiFetch:", e);
+  }
+
+  // If we are in development, call directly. If a custom base URL is specified,
+  // we must route through the backend proxy in production to avoid browser CORS issues.
   if (isDev) {
     const config = DIRECT_CONFIG[service];
-    const url = `${config.baseUrl}${path}`;
+    const baseUrl = customBaseUrl || config.baseUrl;
+    const url = `${baseUrl}${path}`;
     return fetch(url, {
       ...options,
       headers: {
@@ -62,7 +80,20 @@ export async function apiFetch(
     });
   }
 
-  // Production: route through same-origin proxy
+  // Production environment with custom endpoint: route through same-origin proxy
+  if (customBaseUrl) {
+    const url = `/api/proxy/${service}${path}`;
+    return fetch(url, {
+      ...options,
+      headers: {
+        "x-proxy-api-key": apiKey,
+        "x-proxy-base-url": customBaseUrl,
+        ...extraHeaders,
+      },
+    });
+  }
+
+  // Production with default endpoints: route through same-origin proxy
   const url = `/api/proxy/${service}${path}`;
   return fetch(url, {
     ...options,

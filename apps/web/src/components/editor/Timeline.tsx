@@ -28,6 +28,8 @@ import {
   FlipVertical,
   Gauge,
   Droplet,
+  CheckSquare,
+  Square,
 } from "lucide-react";
 import { getSpeedEngine } from "@openreel/core";
 import { useProjectStore } from "../../stores/project-store";
@@ -513,6 +515,117 @@ export const Timeline: React.FC = () => {
     clearSelection();
   }, [clearSelection]);
 
+  const handleSelectAll = useCallback(() => {
+    const textClipIds = new Set(allTextClips.map((clip) => clip.id));
+    const shapeClipIds = new Set(allShapeClips.map((clip) => clip.id));
+
+    const selectedItems: SelectionItem[] = [];
+
+    for (const track of tracks) {
+      // 1. Regular clips
+      const clips = track.clips
+        .filter((clip) => !textClipIds.has(clip.id))
+        .filter((clip) => !shapeClipIds.has(clip.id))
+        .map((clip) => ({
+          type: "clip" as const,
+          id: clip.id,
+          trackId: track.id,
+        }));
+      selectedItems.push(...clips);
+
+      // 2. Text clips on this track
+      const textClips = allTextClips
+        .filter((clip) => clip.trackId === track.id)
+        .map((clip) => ({
+          type: "text-clip" as const,
+          id: clip.id,
+          trackId: track.id,
+        }));
+      selectedItems.push(...textClips);
+
+      // 3. Shape clips on this track
+      const shapeClips = allShapeClips
+        .filter((clip) => clip.trackId === track.id)
+        .map((clip) => ({
+          type: "shape-clip" as const,
+          id: clip.id,
+          trackId: track.id,
+        }));
+      selectedItems.push(...shapeClips);
+    }
+
+    selectMultiple(selectedItems);
+    if (selectedItems.length > 0) {
+      toast.success(`Đã chọn tất cả ${selectedItems.length} clips`);
+    } else {
+      toast.info("Không có clips nào trên timeline để chọn");
+    }
+  }, [tracks, allTextClips, allShapeClips, selectMultiple]);
+
+  const handleDeselectAll = useCallback(() => {
+    clearSelection();
+    toast.success("Đã bỏ chọn tất cả clips");
+  }, [clearSelection]);
+
+  const handleSelectAllTrackClips = useCallback((trackId: string) => {
+    const track = tracks.find((t) => t.id === trackId);
+    if (!track) return;
+
+    const textClipIds = new Set(allTextClips.map((clip) => clip.id));
+    const shapeClipIds = new Set(allShapeClips.map((clip) => clip.id));
+
+    const selectedItems: SelectionItem[] = [];
+
+    // 1. Regular clips
+    const clips = track.clips
+      .filter((clip) => !textClipIds.has(clip.id))
+      .filter((clip) => !shapeClipIds.has(clip.id))
+      .map((clip) => ({
+        type: "clip" as const,
+        id: clip.id,
+        trackId: track.id,
+      }));
+    selectedItems.push(...clips);
+
+    // 2. Text clips on this track
+    const textClips = allTextClips
+      .filter((clip) => clip.trackId === track.id)
+      .map((clip) => ({
+        type: "text-clip" as const,
+        id: clip.id,
+        trackId: track.id,
+      }));
+    selectedItems.push(...textClips);
+
+    // 3. Shape clips on this track
+    const shapeClips = allShapeClips
+      .filter((clip) => clip.trackId === track.id)
+      .map((clip) => ({
+        type: "shape-clip" as const,
+        id: clip.id,
+        trackId: track.id,
+      }));
+    selectedItems.push(...shapeClips);
+
+    selectMultiple(selectedItems);
+    if (selectedItems.length > 0) {
+      toast.success(`Đã chọn tất cả ${selectedItems.length} clips trên track "${track.name || "Track"}"`);
+    } else {
+      toast.info("Không có clips nào trên track này để chọn");
+    }
+  }, [tracks, allTextClips, allShapeClips, selectMultiple]);
+
+  const handleDeselectAllTrackClips = useCallback((trackId: string) => {
+    const track = tracks.find((t) => t.id === trackId);
+    if (!track) return;
+
+    const selectedItems = useUIStore.getState().selectedItems;
+    const updatedItems = selectedItems.filter((item) => item.trackId !== trackId);
+
+    selectMultiple(updatedItems);
+    toast.success(`Đã bỏ chọn các clips trên track "${track.name || "Track"}"`);
+  }, [tracks, selectMultiple]);
+
   const handleBoxSelectionStart = useCallback(
     (e: React.MouseEvent) => {
       if (e.button !== 0) return;
@@ -918,6 +1031,33 @@ export const Timeline: React.FC = () => {
 
           <div className="w-px h-6 bg-border mx-1" />
 
+          {/* Select all / Deselect all group */}
+          <div className="flex bg-background-tertiary rounded-lg p-1 border border-border gap-1">
+            <button
+              onClick={handleSelectAll}
+              title="Chọn tất cả clips (Ctrl+A)"
+              className="flex items-center gap-1.5 px-2 py-1 rounded transition-colors text-text-secondary hover:text-text-primary hover:bg-background-elevated"
+            >
+              <CheckSquare size={14} className="text-green-400" />
+              <span className="text-[10px] font-semibold">SELECT ALL</span>
+            </button>
+            <button
+              onClick={handleDeselectAll}
+              disabled={selectedClipIds.length === 0}
+              title="Bỏ chọn tất cả"
+              className={`flex items-center gap-1.5 px-2 py-1 rounded transition-colors ${
+                selectedClipIds.length > 0
+                  ? "text-text-secondary hover:text-text-primary hover:bg-background-elevated"
+                  : "text-text-muted opacity-40 cursor-not-allowed"
+              }`}
+            >
+              <Square size={14} className={selectedClipIds.length > 0 ? "text-red-400" : ""} />
+              <span className="text-[10px] font-semibold">DESELECT ALL</span>
+            </button>
+          </div>
+
+          <div className="w-px h-6 bg-border mx-1" />
+
           {/* Clip actions group (always visible) */}
           <div className="flex bg-background-tertiary rounded-lg p-1 border border-border gap-1 items-center">
             <span className="text-[9px] font-bold text-text-tertiary px-1 uppercase tracking-wider select-none">Clip</span>
@@ -1289,6 +1429,8 @@ export const Timeline: React.FC = () => {
                       onDragOver={handleTrackDragOver}
                       onDrop={handleTrackDrop}
                       keyframeCount={keyframeCount}
+                      onSelectAllClips={handleSelectAllTrackClips}
+                      onDeselectAllClips={handleDeselectAllTrackClips}
                     />
                   </div>
                 );

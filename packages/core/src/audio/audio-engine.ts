@@ -333,7 +333,8 @@ export class AudioEngine {
     const clipStart = Math.max(clip.startTime, rangeStart);
     const clipEnd = Math.min(clip.startTime + clip.duration, rangeEnd);
     const offsetInClip = clipStart - clip.startTime;
-    const sourceTime = clip.inPoint + offsetInClip;
+    const speed = (clip as any).speed || 1;
+    const sourceTime = clip.inPoint + offsetInClip * speed;
     const clipAudioEffects = resolveClipAudioEffects(clip, timeline);
     const pan = getPanFromAudioEffects(
       clipAudioEffects.length > 0 ? clipAudioEffects : clip.effects,
@@ -352,13 +353,13 @@ export class AudioEngine {
       effects: clipAudioEffects,
       fadeIn: clip.fade?.fadeIn,
       fadeOut: clip.fade?.fadeOut,
-      speed: (clip as any).speed || 1,
+      speed,
       reversed: (clip as any).reversed || false,
       audioTrackIndex: clip.audioTrackIndex,
     };
   }
 
-  private async getAudioBuffer(
+  async getAudioBuffer(
     mediaItem: MediaItem,
     context: BaseAudioContext,
     audioTrackIndex: number = 0,
@@ -386,21 +387,10 @@ export class AudioEngine {
       // mediabunny extraction failed
     }
 
-    if (audioTrackIndex === 0) {
-      try {
-        const arrayBuffer = await mediaItem.blob.arrayBuffer();
-        const audioBuffer = await context.decodeAudioData(arrayBuffer);
-        this.mediaBuffers.set(cacheKey, audioBuffer);
-        return audioBuffer;
-      } catch {
-        return null;
-      }
-    }
-
     return null;
   }
 
-  private async extractAudioFromVideo(
+  async extractAudioFromVideo(
     mediaItem: MediaItem,
     context: BaseAudioContext,
     audioTrackIndex: number = 0,
@@ -413,7 +403,8 @@ export class AudioEngine {
       const wavBlob = await ffmpeg.extractAudioAsWav(mediaItem.blob, audioTrackIndex);
       const arrayBuffer = await wavBlob.arrayBuffer();
       return await context.decodeAudioData(arrayBuffer);
-    } catch {
+    } catch (error) {
+      console.error("[AudioEngine] FFmpeg audio extraction failed:", error);
       return null;
     }
   }

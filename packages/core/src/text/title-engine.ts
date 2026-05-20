@@ -37,6 +37,14 @@ export interface UpdateTextClipOptions {
   metadata?: ClipMetadata;
 }
 
+export function getTextMaxWidth(clip: TextClip, width: number): number {
+  const isCaption =
+    clip.id?.startsWith("sub-") ||
+    clip.id?.startsWith("auto-caption-") ||
+    !!clip.metadata?.isCaption;
+  return isCaption ? width * 0.8 : width * 0.98;
+}
+
 export class TitleEngine {
   private textClips: Map<string, TextClip> = new Map();
   private canvas: HTMLCanvasElement | OffscreenCanvas | null = null;
@@ -256,7 +264,7 @@ export class TitleEngine {
       };
     }
 
-    const maxWidth = width * 0.9;
+    const maxWidth = getTextMaxWidth(clip, width);
     const metrics = this.measureText(visibleText, style, maxWidth);
 
     ctx.save();
@@ -286,7 +294,13 @@ export class TitleEngine {
       const bgWidth = metrics.width + 20;
       const bgHeight = totalHeight;
       ctx.fillStyle = style.backgroundColor;
-      ctx.fillRect(-bgWidth / 2, -bgHeight / 2, bgWidth, bgHeight);
+      let bgX = -bgWidth / 2;
+      if (style.textAlign === "left") {
+        bgX = -10;
+      } else if (style.textAlign === "right") {
+        bgX = -bgWidth + 10;
+      }
+      ctx.fillRect(bgX, -bgHeight / 2, bgWidth, bgHeight);
     }
 
     if (characterStates && characterStates.length > 0) {
@@ -343,7 +357,13 @@ export class TitleEngine {
           const bgWidth = lineMetrics.width + 20;
           const bgHeight = lineHeight;
           ctx.fillStyle = style.backgroundColor;
-          ctx.fillRect(-bgWidth / 2, y - bgHeight / 2, bgWidth, bgHeight);
+          let bgX = -bgWidth / 2;
+          if (style.textAlign === "left") {
+            bgX = -10;
+          } else if (style.textAlign === "right") {
+            bgX = -bgWidth + 10;
+          }
+          ctx.fillRect(bgX, y - bgHeight / 2, bgWidth, bgHeight);
         }
 
         if (style.strokeColor && style.strokeWidth) {
@@ -398,7 +418,7 @@ export class TitleEngine {
     };
   }
 
-  private wrapText(
+  wrapText(
     text: string,
     style: TextStyle,
     maxWidth?: number,

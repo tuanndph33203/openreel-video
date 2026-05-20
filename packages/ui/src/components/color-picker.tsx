@@ -14,7 +14,7 @@ interface ParsedColor {
 }
 
 export interface ColorPickerProps {
-  value: string
+  value?: string
   onChange: (value: string) => void
   showAlpha?: boolean
   allowTransparent?: boolean
@@ -40,10 +40,16 @@ function toHex(value: number): string {
   return clamp(Math.round(value), 0, 255).toString(16).padStart(2, "0")
 }
 
-function normalizeHex(hex: string): string | null {
-  const value = hex.trim()
-  if (!value.startsWith("#")) {
+function normalizeHex(hex: string | undefined | null): string | null {
+  if (typeof hex !== "string") {
     return null
+  }
+  let value = hex.trim()
+  if (!value) {
+    return null
+  }
+  if (!value.startsWith("#")) {
+    value = `#${value}`
   }
 
   const body = value.slice(1)
@@ -75,7 +81,10 @@ function normalizeHex(hex: string): string | null {
   return null
 }
 
-function parseRgbChannel(value: string): number | null {
+function parseRgbChannel(value: string | undefined | null): number | null {
+  if (typeof value !== "string") {
+    return null
+  }
   const trimmed = value.trim()
   if (trimmed.endsWith("%")) {
     const percent = Number.parseFloat(trimmed.slice(0, -1))
@@ -89,7 +98,10 @@ function parseRgbChannel(value: string): number | null {
   return Number.isNaN(channel) ? null : clamp(channel, 0, 255)
 }
 
-function parseAlphaChannel(value: string): number | null {
+function parseAlphaChannel(value: string | undefined | null): number | null {
+  if (typeof value !== "string") {
+    return null
+  }
   const trimmed = value.trim()
   if (trimmed.endsWith("%")) {
     const percent = Number.parseFloat(trimmed.slice(0, -1))
@@ -103,7 +115,10 @@ function parseAlphaChannel(value: string): number | null {
   return Number.isNaN(alpha) ? null : clamp(alpha, 0, 1)
 }
 
-function parseColor(value: string): ParsedColor {
+function parseColor(value: string | undefined | null): ParsedColor {
+  if (typeof value !== "string") {
+    return { hex: DEFAULT_HEX, alpha: 1, isTransparent: false }
+  }
   const normalized = value.trim().toLowerCase()
   if (!normalized || normalized === TRANSPARENT) {
     return { hex: DEFAULT_HEX, alpha: 0, isTransparent: true }
@@ -111,7 +126,7 @@ function parseColor(value: string): ParsedColor {
 
   const hex = normalizeHex(normalized)
   if (hex) {
-    const body = normalized.slice(1)
+    const body = normalized.startsWith("#") ? normalized.slice(1) : normalized
     const alpha =
       body.length === 4
         ? parseInt(`${body[3]}${body[3]}`, 16) / 255

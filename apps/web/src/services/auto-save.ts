@@ -149,6 +149,19 @@ class AutoSaveManager {
     }
 
     const project = this.pendingProject;
+
+    // Skip auto-saving completely empty/pristine projects to avoid cluttering the recent projects list.
+    // A project is considered empty if it has no media items, no tracks, and no subtitles.
+    const isEmpty =
+      (!project.mediaLibrary || project.mediaLibrary.items.length === 0) &&
+      (!project.timeline || (
+        project.timeline.tracks.length === 0 &&
+        (!project.timeline.subtitles || project.timeline.subtitles.length === 0)
+      ));
+    if (isEmpty) {
+      return;
+    }
+
     const hash = this.computeHash(project);
 
     if (hash === this.lastSavedHash) {
@@ -424,6 +437,46 @@ class AutoSaveManager {
     await this.saveIfDirty();
   }
 
+  async deleteProjectSaves(projectId: string): Promise<void> {
+    if (!this.db) {
+      await this.initialize();
+    }
+    if (!this.db) return;
+    try {
+      const allSaves = await this.getAllSaves();
+      const projectSaves = allSaves.filter((s) => s.projectId === projectId);
+      for (const save of projectSaves) {
+        await this.deleteRecord(save.id);
+      }
+    } catch (err) {
+      console.error("[AutoSave] Failed to delete project saves:", err);
+    }
+  }
+
+  async renameProjectSaves(projectId: string, newName: string): Promise<void> {
+    if (!this.db) {
+      await this.initialize();
+    }
+    if (!this.db) return;
+    try {
+      const allSaves = await this.getAllSaves();
+      const projectSaves = allSaves.filter((s) => s.projectId === projectId);
+      for (const save of projectSaves) {
+        save.projectName = newName;
+        try {
+          const project = JSON.parse(save.data) as any;
+          project.name = newName;
+          save.data = JSON.stringify(project);
+        } catch (error) {
+          console.error("Failed to update project name inside save data:", error);
+        }
+        await this.saveRecord(save);
+      }
+    } catch (err) {
+      console.error("[AutoSave] Failed to rename project saves:", err);
+    }
+  }
+
   destroy(): void {
     this.stop();
     if (this.db) {
@@ -461,3 +514,12 @@ export async function checkForRecovery(
 export async function recoverProject(saveId: string): Promise<Project | null> {
   return autoSaveManager.recover(saveId);
 }
+
+export async function deleteProjectSaves(projectId: string): Promise<void> {
+  await autoSaveManager.deleteProjectSaves(projectId);
+}
+
+export async function renameProjectSaves(projectId: string, newName: string): Promise<void> {
+  await autoSaveManager.renameProjectSaves(projectId, newName);
+}
+

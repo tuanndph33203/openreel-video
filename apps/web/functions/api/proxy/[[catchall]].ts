@@ -56,7 +56,7 @@ function getCorsHeaders(request: Request): Record<string, string> {
   return {
     "Access-Control-Allow-Origin": allowedOrigin,
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, x-proxy-api-key",
+    "Access-Control-Allow-Headers": "Content-Type, x-proxy-api-key, x-proxy-base-url",
     Vary: "Origin",
   };
 }
@@ -118,10 +118,13 @@ export const onRequest: PagesFunction = async (context) => {
     }
   }
 
+  const customBaseUrl = context.request.headers.get("x-proxy-base-url");
+  const baseUrl = customBaseUrl ? customBaseUrl.trim().replace(/\/$/, "") : config.baseUrl;
+
   const originalUrl = new URL(context.request.url);
   const targetUrl = remainingPath
-    ? `${config.baseUrl}/${remainingPath}${originalUrl.search}`
-    : `${config.baseUrl}${originalUrl.search}`;
+    ? `${baseUrl}/${remainingPath}${originalUrl.search}`
+    : `${baseUrl}${originalUrl.search}`;
 
   const upstreamHeaders = new Headers();
   const contentType = context.request.headers.get("Content-Type");

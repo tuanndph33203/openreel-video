@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Eye, EyeOff, Volume2, Lock, Trash2, ChevronDown, ChevronRight, Pencil } from "lucide-react";
+import { Eye, EyeOff, Volume2, Lock, Trash2, ChevronDown, ChevronRight, Pencil, CheckSquare, Square } from "lucide-react";
 import type { Track } from "@openreel/core";
 import { useProjectStore } from "../../../stores/project-store";
 import { useTimelineStore } from "../../../stores/timeline-store";
@@ -19,6 +19,8 @@ interface TrackHeaderProps {
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent, targetTrackId: string) => void;
   keyframeCount?: number;
+  onSelectAllClips?: (trackId: string) => void;
+  onDeselectAllClips?: (trackId: string) => void;
 }
 
 export const TrackHeader: React.FC<TrackHeaderProps> = ({
@@ -28,6 +30,8 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({
   onDragOver,
   onDrop,
   keyframeCount = 0,
+  onSelectAllClips,
+  onDeselectAllClips,
 }) => {
   const { lockTrack, hideTrack, muteTrack, removeTrack, renameTrack } = useProjectStore();
   const { isTrackExpanded, toggleTrackExpanded, getTrackHeight } = useTimelineStore();
@@ -167,6 +171,20 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({
               <Lock size={12} />
             </button>
             <button
+              onClick={(e) => { e.stopPropagation(); onSelectAllClips?.(track.id); }}
+              className="p-1 rounded transition-colors text-text-muted hover:bg-green-500/20 hover:text-green-400"
+              title="Select all clips on this track"
+            >
+              <CheckSquare size={12} />
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onDeselectAllClips?.(track.id); }}
+              className="p-1 rounded transition-colors text-text-muted hover:bg-red-500/20 hover:text-red-400"
+              title="Deselect all clips on this track"
+            >
+              <Square size={12} />
+            </button>
+            <button
               onClick={(e) => { e.stopPropagation(); handleRemoveTrack(); }}
               className="p-1 rounded transition-colors hover:bg-red-500/20 text-red-400/50 hover:text-red-400"
               title="Delete track"
@@ -184,6 +202,15 @@ export const TrackHeader: React.FC<TrackHeaderProps> = ({
         <ContextMenuItem onClick={startRename}>
           <Pencil className="mr-2 h-4 w-4" />
           Rename Track
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onClick={() => onSelectAllClips?.(track.id)}>
+          <CheckSquare className="mr-2 h-4 w-4 text-green-400" />
+          Select All Clips
+        </ContextMenuItem>
+        <ContextMenuItem onClick={() => onDeselectAllClips?.(track.id)}>
+          <Square className="mr-2 h-4 w-4 text-red-400" />
+          Deselect All Clips
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem

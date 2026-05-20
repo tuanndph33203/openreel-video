@@ -23,13 +23,13 @@ export const SERVICE_REGISTRY: readonly ServiceConfig[] = [
   {
     id: "openai",
     label: "OpenAI",
-    description: "GPT models for script generation and AI features",
+    description: "GPT models for script generation and AI features (supports custom endpoints like Mimo, DeepSeek, OpenRouter)",
     docsUrl: "https://platform.openai.com/docs/api-reference",
   },
   {
     id: "anthropic",
     label: "Anthropic",
-    description: "Claude models for AI-assisted editing",
+    description: "Claude models for AI-assisted editing (supports custom endpoints)",
     docsUrl: "https://docs.anthropic.com/en/docs",
   },
   {
@@ -74,6 +74,9 @@ export interface SettingsState {
   settingsOpen: boolean;
   settingsTab: SettingsTab;
 
+  customOpenAiBaseUrl: string;
+  customAnthropicBaseUrl: string;
+
   // Actions
   setAutoSave: (enabled: boolean) => void;
   setAutoSaveInterval: (minutes: number) => void;
@@ -88,6 +91,8 @@ export interface SettingsState {
   removeFavoriteModel: (modelId: string) => void;
   addConfiguredService: (serviceId: string) => void;
   removeConfiguredService: (serviceId: string) => void;
+  setCustomOpenAiBaseUrl: (url: string) => void;
+  setCustomAnthropicBaseUrl: (url: string) => void;
   setCachedElevenLabsVoices: (voices: SettingsState["cachedElevenLabsVoices"]) => void;
   setCachedElevenLabsModels: (models: SettingsState["cachedElevenLabsModels"]) => void;
   clearApiCaches: () => void;
@@ -110,6 +115,8 @@ export const useSettingsStore = create<SettingsState>()(
         favoriteVoices: [],
         favoriteModels: [],
         configuredServices: [],
+        customOpenAiBaseUrl: "",
+        customAnthropicBaseUrl: "",
 
         cachedElevenLabsVoices: null,
         cachedElevenLabsModels: null,
@@ -174,6 +181,9 @@ export const useSettingsStore = create<SettingsState>()(
           });
         },
 
+        setCustomOpenAiBaseUrl: (url: string) => set({ customOpenAiBaseUrl: url }),
+        setCustomAnthropicBaseUrl: (url: string) => set({ customAnthropicBaseUrl: url }),
+
         setCachedElevenLabsVoices: (voices) =>
           set({ cachedElevenLabsVoices: voices }),
 
@@ -205,6 +215,8 @@ export const useSettingsStore = create<SettingsState>()(
           favoriteVoices: state.favoriteVoices,
           favoriteModels: state.favoriteModels,
           configuredServices: state.configuredServices,
+          customOpenAiBaseUrl: state.customOpenAiBaseUrl,
+          customAnthropicBaseUrl: state.customAnthropicBaseUrl,
         }),
       },
     ),

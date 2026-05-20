@@ -1237,8 +1237,13 @@ export class ActionExecutor {
 
       case "subtitle/remove": {
         const params = action.params as { subtitleId: string };
+        const relatedIds = [
+          params.subtitleId,
+          `${params.subtitleId}-translated`,
+          params.subtitleId.replace("-translated", ""),
+        ];
         timeline.subtitles = (timeline.subtitles || []).filter(
-          (s: Subtitle) => s.id !== params.subtitleId,
+          (s: Subtitle) => !relatedIds.includes(s.id),
         );
         break;
       }

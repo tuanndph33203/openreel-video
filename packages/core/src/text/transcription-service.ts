@@ -33,6 +33,14 @@ export interface TranscriptionConfig {
   targetLanguage?: string;
   maxSegmentDuration?: number;
   maxWordsPerSegment?: number;
+  translationMethod?: "google" | "ai";
+  aiConfig?: {
+    provider: "openai" | "anthropic";
+    apiKey: string;
+    tone?: string;
+    videoContext?: string;
+    customBaseUrl?: string;
+  };
 }
 
 const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = {
@@ -116,6 +124,15 @@ export class TranscriptionService {
     subtitles: Subtitle[],
     targetLanguage: string,
   ): Promise<Subtitle[]> {
+    if (this.config.translationMethod === "ai" && this.config.aiConfig?.apiKey) {
+      try {
+        console.log("Using AI Translation...");
+        return await this.translateSubtitlesWithAI(subtitles, targetLanguage);
+      } catch (err) {
+        console.error("AI translation failed, falling back to Google Translate:", err);
+      }
+    }
+
     const resultList: Subtitle[] = [];
 
     for (const subtitle of subtitles) {
@@ -168,6 +185,193 @@ export class TranscriptionService {
         }
       } catch (err) {
         console.error("Failed to translate subtitle segment:", err);
+      }
+    }
+
+    return resultList;
+  }
+
+  private async translateSubtitlesWithAI(
+    subtitles: Subtitle[],
+    targetLanguage: string,
+  ): Promise<Subtitle[]> {
+    const aiConfig = this.config.aiConfig;
+    if (!aiConfig || !aiConfig.apiKey) {
+      throw new Error("Missing AI configuration or API Key");
+    }
+
+    const tone = aiConfig.tone || "natural and fluent";
+    const provider = aiConfig.provider;
+
+    // Filter subtitles that have text
+    const textSubtitles = subtitles.filter(s => s.text && s.text.trim().length > 0);
+    if (textSubtitles.length === 0) {
+      return subtitles; // Nothing to translate
+    }
+
+    // Build the array to send
+    const subtitlesPayload = textSubtitles.map(s => ({
+      id: s.id,
+      text: s.text
+    }));
+
+    const contextPrompt = aiConfig.videoContext ? `Additional Context/Topic of the video: ${aiConfig.videoContext}\n` : "";
+    const systemPrompt = `You are a professional video translator. Translate the following subtitles into ${targetLanguage}.
+${contextPrompt}Maintain the contextual flow, conversational tone, and exact meaning across the entire sequence.
+The requested tone is: ${tone}.
+Do not summarize. Translate every text segment exactly.
+IMPORTANT: You MUST respond ONLY with a JSON object in this format:
+{
+  "translations": [
+    { "id": "the-original-id", "text": "translated text here" }
+  ]
+}
+Do not include any markdowns (like \`\`\`json) or other conversational filler. Return ONLY the raw JSON object.`;
+
+    const isLocal = typeof window !== 'undefined' && 
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+    let url = "";
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    };
+
+    if (isLocal) {
+      // In local development, call directly
+      const baseUrl = aiConfig.customBaseUrl 
+        ? aiConfig.customBaseUrl.trim().replace(/\/$/, "") 
+        : (provider === 'openai' ? 'https://api.openai.com/v1' : 'https://api.anthropic.com/v1');
+      
+      if (provider === 'openai') {
+        url = baseUrl.endsWith('/chat/completions') ? baseUrl : `${baseUrl}/chat/completions`;
+        headers['Authorization'] = `Bearer ${aiConfig.apiKey}`;
+      } else {
+        url = baseUrl.endsWith('/messages') ? baseUrl : `${baseUrl}/messages`;
+        headers['x-api-key'] = aiConfig.apiKey;
+        headers['anthropic-version'] = '2023-06-01';
+        headers['anthropic-dangerous-direct-browser-access'] = 'true';
+      }
+    } else {
+      // In production/preview environments, route through Cloudflare proxy to avoid CORS/security issues
+      url = `/api/proxy/${provider}${provider === 'openai' ? '/chat/completions' : '/messages'}`;
+      headers['x-proxy-api-key'] = aiConfig.apiKey;
+      if (aiConfig.customBaseUrl) {
+        headers['x-proxy-base-url'] = aiConfig.customBaseUrl.trim().replace(/\/$/, "");
+      }
+    }
+
+    let requestBody: any;
+    if (provider === 'openai') {
+      requestBody = {
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: JSON.stringify(subtitlesPayload) }
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.3
+      };
+    } else {
+      requestBody = {
+        model: 'claude-3-5-haiku-20241022',
+        max_tokens: 4000,
+        system: systemPrompt,
+        messages: [
+          { role: 'user', content: JSON.stringify(subtitlesPayload) }
+        ],
+        temperature: 0.3
+      };
+    }
+
+    // Add debugging log to help verify the exact URL and API key prefix
+    const maskedApiKey = aiConfig.apiKey 
+      ? `${aiConfig.apiKey.slice(0, 5)}...${aiConfig.apiKey.slice(-4)} (length: ${aiConfig.apiKey.length})` 
+      : 'NONE';
+    console.log("[AI Translation Debug]", {
+      isLocal,
+      url,
+      provider,
+      maskedApiKey,
+      customBaseUrl: aiConfig.customBaseUrl,
+      headers: {
+        ...headers,
+        'Authorization': headers['Authorization'] ? 'Bearer [MASKED]' : undefined,
+        'x-api-key': headers['x-api-key'] ? '[MASKED]' : undefined,
+        'x-proxy-api-key': headers['x-proxy-api-key'] ? '[MASKED]' : undefined,
+      }
+    });
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(requestBody)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`AI Translation request failed: ${response.status} - ${errorText}`);
+    }
+
+    const json = await response.json();
+    let textResponse = '';
+
+    if (provider === 'openai') {
+      textResponse = json.choices?.[0]?.message?.content || '';
+    } else {
+      textResponse = json.content?.[0]?.text || '';
+    }
+
+    textResponse = textResponse.trim();
+    // In case the model wrapped the JSON in markdown code blocks
+    if (textResponse.startsWith('```')) {
+      const firstLineBreak = textResponse.indexOf('\n');
+      const lastLineBreak = textResponse.lastIndexOf('```');
+      if (firstLineBreak !== -1 && lastLineBreak !== -1) {
+        textResponse = textResponse.substring(firstLineBreak + 1, lastLineBreak).trim();
+      }
+    }
+
+    const parsed = JSON.parse(textResponse);
+    const translationsArray: Array<{ id: string; text: string }> = parsed.translations || [];
+
+    // Map by ID
+    const translationMap = new Map<string, string>();
+    for (const t of translationsArray) {
+      translationMap.set(t.id, t.text);
+    }
+
+    const resultList: Subtitle[] = [];
+    for (const subtitle of subtitles) {
+      // 1. Keep original subtitle
+      resultList.push(subtitle);
+
+      if (!subtitle.text) {
+        continue;
+      }
+
+      const translatedText = translationMap.get(subtitle.id);
+      if (translatedText) {
+        const duration = subtitle.endTime - subtitle.startTime;
+        const translatedWordsText = translatedText.split(/\s+/);
+        const numWords = translatedWordsText.length;
+
+        let words = undefined;
+        if (numWords > 0) {
+          const wordDuration = duration / numWords;
+          words = translatedWordsText.map((w, idx) => ({
+            text: w,
+            startTime: subtitle.startTime + idx * wordDuration,
+            endTime: subtitle.startTime + (idx + 1) * wordDuration,
+          }));
+        }
+
+        // 2. Add translated subtitle as a separate distinct element
+        resultList.push({
+          ...subtitle,
+          id: `${subtitle.id}-translated`,
+          text: translatedText,
+          words,
+        });
       }
     }
 

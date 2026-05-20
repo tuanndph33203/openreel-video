@@ -1,8 +1,6 @@
 import React, { useCallback, useRef, useState } from "react";
 import {
   Search,
-  Maximize2,
-  X,
   Image as ImageIcon,
   Film,
   Music,
@@ -1007,87 +1005,6 @@ export const AssetsPanel: React.FC = () => {
                     {missingAssetsCount}
                   </div>
                 </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Shapes Section */}
-          <div className="mb-6">
-            <h4 className="text-xs font-medium text-text-secondary mb-3">
-              Shapes
-            </h4>
-            <div className="grid grid-cols-4 gap-2">
-              <button
-                onClick={async () => {
-                  const state = useProjectStore.getState();
-                  const { createShapeClip, addTrack } = state;
-                  const tracksBefore = state.project.timeline.tracks;
-                  await addTrack("graphics", 0);
-                  const tracksAfter =
-                    useProjectStore.getState().project.timeline.tracks;
-                  const newGraphicsTrack = tracksAfter.find(
-                    (t) =>
-                      t.type === "graphics" &&
-                      !tracksBefore.some((bt) => bt.id === t.id),
-                  );
-                  if (newGraphicsTrack) {
-                    createShapeClip(
-                      newGraphicsTrack.id,
-                      0,
-                      "rectangle",
-                      5,
-                      {
-                        backdropBlur: 24,
-                        cornerRadius: 6,
-                        fill: {
-                          type: "solid",
-                          color: "rgba(255, 255, 255, 0.08)",
-                          opacity: 1,
-                        },
-                        stroke: {
-                          color: "rgba(255, 255, 255, 0.35)",
-                          width: 1,
-                          opacity: 1,
-                        },
-                      },
-                    );
-                  }
-                }}
-                className="aspect-square bg-background-tertiary rounded-lg border border-border hover:border-primary/50 hover:bg-primary/5 transition-all flex flex-col items-center justify-center gap-1 group"
-                title="Blur Block"
-              >
-                <Focus
-                  size={20}
-                  className="text-text-secondary group-hover:text-primary transition-colors"
-                />
-                <span className="text-[9px] text-text-muted group-hover:text-text-secondary">
-                  Blur
-                </span>
-              </button>
-              {[
-                {
-                  type: "rectangle" as ShapeType,
-                  icon: Square,
-                  label: "Rectangle",
-                },
-                { type: "circle" as ShapeType, icon: Circle, label: "Circle" },
-                {
-                  type: "triangle" as ShapeType,
-                  icon: Triangle,
-                  label: "Triangle",
-                },
-                { type: "star" as ShapeType, icon: Star, label: "Star" },
-                {
-                  type: "arrow" as ShapeType,
-                  icon: ArrowRight,
-                  label: "Arrow",
-                },
-                {
-                  type: "polygon" as ShapeType,
-                  icon: Hexagon,
-                  label: "Polygon",
-                },
-              ].map((shape) => (
                 <button
                   onClick={handleRelinkFromFolder}
                   className="w-full px-3 py-2 rounded-lg border border-yellow-500/40 bg-yellow-500/5 text-yellow-500 text-xs font-medium transition-all hover:bg-yellow-500/15 flex items-center gap-2"
@@ -1227,6 +1144,53 @@ export const AssetsPanel: React.FC = () => {
                     Shapes
                   </h4>
                   <div className="grid grid-cols-4 gap-2">
+                    <button
+                      onClick={async () => {
+                        const state = useProjectStore.getState();
+                        const { createShapeClip, addTrack } = state;
+                        const tracksBefore = state.project.timeline.tracks;
+                        await addTrack("graphics", 0);
+                        const tracksAfter =
+                          useProjectStore.getState().project.timeline.tracks;
+                        const newGraphicsTrack = tracksAfter.find(
+                          (t) =>
+                            t.type === "graphics" &&
+                            !tracksBefore.some((bt) => bt.id === t.id),
+                        );
+                        if (newGraphicsTrack) {
+                          createShapeClip(
+                            newGraphicsTrack.id,
+                            0,
+                            "rectangle",
+                            5,
+                            {
+                              backdropBlur: 24,
+                              cornerRadius: 6,
+                              fill: {
+                                type: "solid",
+                                color: "rgba(255, 255, 255, 0.08)",
+                                opacity: 1,
+                              },
+                              stroke: {
+                                color: "rgba(255, 255, 255, 0.35)",
+                                width: 1,
+                                opacity: 1,
+                              },
+                            },
+                          );
+                        }
+                      }}
+                      className="aspect-square bg-background-tertiary rounded-lg border border-border hover:border-primary/50 hover:bg-primary/5 transition-all flex flex-col items-center justify-center gap-1 group"
+                      title="Blur Block"
+                    >
+                      <Focus
+                        size={20}
+                        className="text-text-secondary group-hover:text-primary transition-colors"
+                      />
+                      <span className="text-[9px] text-text-muted group-hover:text-text-secondary">
+                        Blur
+                      </span>
+                    </button>
                     {[
                       {
                         type: "rectangle" as ShapeType,

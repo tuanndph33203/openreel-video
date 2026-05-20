@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
   Smartphone,
   Monitor,
@@ -10,6 +10,7 @@ import {
 import { Button, Input, Label } from "@openreel/ui";
 import { useProjectStore } from "../../stores/project-store";
 import { useAnalytics, AnalyticsEvents } from "../../hooks/useAnalytics";
+import { autoSaveManager } from "../../services/auto-save";
 import {
   SOCIAL_MEDIA_PRESETS,
   SOCIAL_MEDIA_CATEGORY_INFO,
@@ -67,15 +68,58 @@ export const StartFromScratch: React.FC<StartFromScratchProps> = ({
     useState<SocialMediaCategory>("youtube-video");
   const [projectName, setProjectName] = useState("");
   const [isCreating, setIsCreating] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
 
   const preset = SOCIAL_MEDIA_PRESETS[selectedPreset];
   const info = SOCIAL_MEDIA_CATEGORY_INFO.find((c) => c.id === selectedPreset);
 
+  useEffect(() => {
+    const checkDuplicateName = async () => {
+      const trimmed = projectName.trim();
+      if (!trimmed) {
+        setNameError(null);
+        return;
+      }
+      try {
+        const saves = await autoSaveManager.checkForRecovery();
+        const isDuplicate = saves.some(
+          (s) => s.projectName.trim().toLowerCase() === trimmed.toLowerCase()
+        );
+        if (isDuplicate) {
+          setNameError("Tên dự án đã tồn tại. Vui lòng chọn tên khác.");
+        } else {
+          setNameError(null);
+        }
+      } catch (err) {
+        console.warn("Failed to check duplicate name:", err);
+        setNameError(null);
+      }
+    };
+
+    checkDuplicateName();
+  }, [projectName]);
+
   const handleCreate = useCallback(async () => {
+    const trimmedName = projectName.trim();
+    const finalName = trimmedName || `${info?.name || "New"} Project`;
+
+    try {
+      const saves = await autoSaveManager.checkForRecovery();
+      const isDuplicate = saves.some(
+        (s) => s.projectName.trim().toLowerCase() === finalName.toLowerCase()
+      );
+      if (isDuplicate) {
+        setNameError("Tên dự án đã tồn tại. Vui lòng chọn tên khác.");
+        return;
+      }
+    } catch (err) {
+      console.warn("Failed to check duplicate name during create:", err);
+    }
+
     setIsCreating(true);
 
     const settings = createProjectSettingsFromPreset(preset);
-    createNewProject(projectName.trim() || `${info?.name || "New"} Project`);
+    createNewProject(finalName);
     await updateSettings(settings);
 
     track(AnalyticsEvents.PROJECT_CREATED, {
@@ -112,8 +156,16 @@ export const StartFromScratch: React.FC<StartFromScratchProps> = ({
           value={projectName}
           onChange={(e) => setProjectName(e.target.value)}
           placeholder="My Awesome Video"
-          className="max-w-md bg-background-tertiary border-border text-text-primary"
+          className={`max-w-md bg-background-tertiary text-text-primary ${
+            nameError ? "border-red-500 focus:border-red-500" : "border-border"
+          }`}
         />
+        {nameError && (
+          <p className="text-xs text-red-500 mt-1.5 font-medium flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block" />
+            {nameError}
+          </p>
+        )}
       </div>
 
       <div>
@@ -203,7 +255,7 @@ export const StartFromScratch: React.FC<StartFromScratchProps> = ({
       <div className="flex items-center justify-end gap-3">
         <Button
           onClick={handleCreate}
-          disabled={isCreating}
+          disabled={isCreating || !!nameError}
           className="shadow-glow"
         >
           {isCreating ? (

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Clock, Trash2, Film } from "lucide-react";
+import { Clock, Trash2, Film, Pencil } from "lucide-react";
 import {
   checkForRecovery,
+  autoSaveManager,
   type AutoSaveMetadata,
 } from "../../services/auto-save";
 import { useProjectStore } from "../../stores/project-store";
@@ -82,10 +83,67 @@ export const RecentProjects: React.FC<RecentProjectsProps> = ({
     [recoverFromAutoSave, onProjectSelected, track],
   );
 
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState("");
+
+  const handleStartRename = useCallback((project: RecentProject, event: React.MouseEvent) => {
+    event.stopPropagation();
+    setEditingProjectId(project.id);
+    setEditingName(project.name);
+  }, []);
+
+  const handleSaveRename = useCallback(async (projectId: string) => {
+    const trimmed = editingName.trim();
+    if (!trimmed) {
+      setEditingProjectId(null);
+      return;
+    }
+    
+    const currentProj = recentProjects.find(p => p.id === projectId);
+    if (currentProj && currentProj.name === trimmed) {
+      setEditingProjectId(null);
+      return;
+    }
+
+    const isDuplicate = recentProjects.some(
+      (p) => p.id !== projectId && p.name.trim().toLowerCase() === trimmed.toLowerCase()
+    );
+    if (isDuplicate) {
+      alert("Tên dự án đã tồn tại. Vui lòng chọn tên khác.");
+      return;
+    }
+
+    try {
+      await autoSaveManager.renameProjectSaves(projectId, trimmed);
+      setRecentProjects((prev) =>
+        prev.map((p) => (p.id === projectId ? { ...p, name: trimmed } : p))
+      );
+      setEditingProjectId(null);
+    } catch (error) {
+      console.error("Failed to rename project saves:", error);
+    }
+  }, [editingName, recentProjects]);
+
+  const handleRenameKeyDown = useCallback((e: React.KeyboardEvent, projectId: string) => {
+    if (e.key === "Enter") {
+      handleSaveRename(projectId);
+    } else if (e.key === "Escape") {
+      setEditingProjectId(null);
+    }
+  }, [handleSaveRename]);
+
   const handleRemoveProject = useCallback(
-    (projectId: string, event: React.MouseEvent) => {
+    async (projectId: string, event: React.MouseEvent) => {
       event.stopPropagation();
-      setRecentProjects((prev) => prev.filter((p) => p.id !== projectId));
+      const confirmDelete = window.confirm("Bạn có chắc chắn muốn xóa dự án này không?");
+      if (!confirmDelete) return;
+
+      try {
+        await autoSaveManager.deleteProjectSaves(projectId);
+        setRecentProjects((prev) => prev.filter((p) => p.id !== projectId));
+      } catch (error) {
+        console.error("Failed to delete project saves:", error);
+      }
     },
     [],
   );
@@ -163,9 +221,23 @@ export const RecentProjects: React.FC<RecentProjectsProps> = ({
                 </div>
 
                 <div className="p-3 flex-1">
-                  <h4 className="text-sm font-medium text-text-primary truncate group-hover:text-primary transition-colors">
-                    {project.name}
-                  </h4>
+                  {editingProjectId === project.id ? (
+                    <div className="mt-1" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="text"
+                        value={editingName}
+                        onChange={(e) => setEditingName(e.target.value)}
+                        onBlur={() => handleSaveRename(project.id)}
+                        onKeyDown={(e) => handleRenameKeyDown(e, project.id)}
+                        autoFocus
+                        className="w-full text-xs px-2 py-1 bg-background border border-primary rounded text-text-primary focus:outline-none"
+                      />
+                    </div>
+                  ) : (
+                    <h4 className="text-sm font-medium text-text-primary truncate group-hover:text-primary transition-colors">
+                      {project.name}
+                    </h4>
+                  )}
                   <div className="flex items-center gap-1.5 mt-1.5 text-xs text-text-muted">
                     <Clock size={11} />
                     <span>{formatDate(project.lastModified)}</span>
@@ -173,13 +245,22 @@ export const RecentProjects: React.FC<RecentProjectsProps> = ({
                 </div>
               </button>
 
-              <button
-                onClick={(e) => handleRemoveProject(project.id, e)}
-                className="absolute top-2 right-2 p-1.5 text-text-muted hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all rounded-lg bg-background/80 hover:bg-red-500/10 backdrop-blur-sm"
-                title="Remove from recent"
-              >
-                <Trash2 size={14} />
-              </button>
+              <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                <button
+                  onClick={(e) => handleStartRename(project, e)}
+                  className="p-1.5 text-text-muted hover:text-primary rounded-lg bg-background/80 hover:bg-primary/10 backdrop-blur-sm"
+                  title="Rename project"
+                >
+                  <Pencil size={14} />
+                </button>
+                <button
+                  onClick={(e) => handleRemoveProject(project.id, e)}
+                  className="p-1.5 text-text-muted hover:text-red-400 rounded-lg bg-background/80 hover:bg-red-500/10 backdrop-blur-sm"
+                  title="Delete project"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
             </div>
           );
         })}

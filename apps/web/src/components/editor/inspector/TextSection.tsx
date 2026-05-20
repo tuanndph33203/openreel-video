@@ -186,6 +186,26 @@ const FontSelector: React.FC<{
   );
 };
 
+const DEFAULT_TEXT_STYLE: TextStyle = {
+  fontFamily: "Inter",
+  fontSize: 48,
+  fontWeight: "normal" as FontWeight,
+  fontStyle: "normal",
+  color: "#ffffff",
+  backgroundColor: "transparent",
+  textAlign: "center",
+  verticalAlign: "middle",
+  lineHeight: 1.2,
+  letterSpacing: 0,
+  textDecoration: "none",
+  strokeColor: "#000000",
+  strokeWidth: 0,
+  shadowColor: "#000000",
+  shadowOffsetX: 0,
+  shadowOffsetY: 0,
+  shadowBlur: 0,
+};
+
 interface TextSectionProps {
   clipId?: string;
   clipIds?: string[];
@@ -221,27 +241,13 @@ export const TextSection: React.FC<TextSectionProps> = ({ clipId, clipIds }) => 
   const textClip = textClips[0];
   const isBatchEditing = textClips.length > 1;
 
-  const defaultStyle: TextStyle = {
-    fontFamily: "Inter",
-    fontSize: 48,
-    fontWeight: "normal" as FontWeight,
-    fontStyle: "normal",
-    color: "#ffffff",
-    backgroundColor: "transparent",
-    textAlign: "center",
-    verticalAlign: "middle",
-    lineHeight: 1.2,
-    letterSpacing: 0,
-    textDecoration: "none",
-    strokeColor: "#000000",
-    strokeWidth: 0,
-    shadowColor: "#000000",
-    shadowOffsetX: 0,
-    shadowOffsetY: 0,
-    shadowBlur: 0,
-  };
+  const style = useMemo(() => {
+    return {
+      ...DEFAULT_TEXT_STYLE,
+      ...(textClip?.style || {}),
+    };
+  }, [textClip?.style]);
 
-  const style = textClip?.style || defaultStyle;
   const text = textClip?.text || "";
   const canvasWidth = project.settings.width || 1920;
   const canvasHeight = project.settings.height || 1080;

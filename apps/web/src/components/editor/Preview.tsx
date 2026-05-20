@@ -48,6 +48,8 @@ import {
   type StickerClip,
   type Subtitle,
   type Track,
+  titleEngine,
+  getTextMaxWidth,
 } from "@openreel/core";
 import { useEngineStore } from "../../stores/engine-store";
 import {
@@ -385,6 +387,8 @@ export const Preview: React.FC = () => {
     null,
   );
   const lastPreviewRenderTimeRef = useRef(0);
+  const lastRenderFrameDirectlyRef = useRef<any>(null);
+  const lastRenderFallbackFrameRef = useRef<any>(null);
   const offscreenCtxRef = useRef<OffscreenCanvasRenderingContext2D | null>(
     null,
   );
@@ -1752,6 +1756,8 @@ export const Preview: React.FC = () => {
         offscreenCtxRef.current as unknown as CanvasRenderingContext2D;
       if (!ctx) return false;
 
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
       const videoTracks = timelineTracks.filter(
         (t) => (t.type === "video" || t.type === "image") && !t.hidden,
       );
@@ -2831,7 +2837,7 @@ export const Preview: React.FC = () => {
           }
 
           const activeSubtitlesNoVideo = getActiveSubtitles(
-            allSubtitles,
+            allSubtitlesRef.current,
             currentPlayhead,
           );
           for (const subtitle of activeSubtitlesNoVideo) {
@@ -3054,7 +3060,7 @@ export const Preview: React.FC = () => {
         subjectFrame?.close();
 
         const activeSubtitles = getActiveSubtitles(
-          allSubtitles,
+          allSubtitlesRef.current,
           currentPlayhead,
         );
         for (const subtitle of activeSubtitles) {
@@ -3109,7 +3115,6 @@ export const Preview: React.FC = () => {
     [
       actualEndTime,
       canUseNativeDomVideoLayer,
-      allSubtitles,
       getMediaItem,
       getAudioClipsForScheduler,
       isMuted,
@@ -3134,7 +3139,8 @@ export const Preview: React.FC = () => {
     }
 
     if (!isPlaying) {
-      syncNativeTextOverlay([]);
+      const activeClips = getActiveTextClips(allTextClipsRef.current, playheadPositionRef.current);
+      syncNativeTextOverlay(activeClips);
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);
         animationRef.current = null;
@@ -4472,9 +4478,13 @@ export const Preview: React.FC = () => {
 
     const playheadChanged = playheadPosition !== lastPlayheadForRenderRef.current;
     const modifiedChanged = project.modifiedAt !== lastModifiedAtRef.current;
+    const renderFuncChanged =
+      renderFrameDirectly !== lastRenderFrameDirectlyRef.current ||
+      renderFallbackFrame !== lastRenderFallbackFrameRef.current;
 
-    lastModifiedAtRef.current = project.modifiedAt;
-    lastPlayheadForRenderRef.current = playheadPosition;
+    // Only update render function refs immediately
+    lastRenderFrameDirectlyRef.current = renderFrameDirectly;
+    lastRenderFallbackFrameRef.current = renderFallbackFrame;
 
     const previousRenderTime = lastPreviewRenderTimeRef.current;
     const isLargeJump =
@@ -4493,12 +4503,16 @@ export const Preview: React.FC = () => {
         if (!rendered) {
           renderFallbackFrame(playheadPosition);
         }
+        const activeClips = getActiveTextClips(allTextClips, playheadPosition);
+        syncNativeTextOverlay(activeClips);
       } finally {
         renderInFlightRef.current = false;
       }
     };
 
-    if (playheadChanged) {
+    if (playheadChanged || renderFuncChanged) {
+      lastPlayheadForRenderRef.current = playheadPosition;
+      lastModifiedAtRef.current = project.modifiedAt;
       doRender();
     } else if (modifiedChanged) {
       if (modifiedRenderTimerRef.current) {
@@ -4506,6 +4520,8 @@ export const Preview: React.FC = () => {
       }
       modifiedRenderTimerRef.current = setTimeout(() => {
         modifiedRenderTimerRef.current = null;
+        lastPlayheadForRenderRef.current = playheadPosition;
+        lastModifiedAtRef.current = project.modifiedAt;
         doRender();
       }, 150);
     }
@@ -4525,7 +4541,17 @@ export const Preview: React.FC = () => {
     releaseScrubVideoElements,
     project.modifiedAt,
     isDark,
+    syncNativeTextOverlay,
+    allTextClips,
+    allSubtitles,
   ]);
+
+  // Synchronize DOM text overlay instantly when not playing
+  useEffect(() => {
+    if (isPlaying) return;
+    const activeClips = getActiveTextClips(allTextClips, playheadPosition);
+    syncNativeTextOverlay(activeClips);
+  }, [allTextClips, playheadPosition, isPlaying, syncNativeTextOverlay]);
 
   const [previewInvalidateCounter, setPreviewInvalidateCounter] = useState(0);
   useEffect(() => {
@@ -4704,14 +4730,11 @@ export const Preview: React.FC = () => {
 
     const displayScale = actualWidth / canvasWidth;
 
-    const lines = text.split("\n");
-    const lineHeight = style.fontSize * style.lineHeight;
-    const estimatedHeight = lines.length * lineHeight;
-    const estimatedWidth =
-      style.fontSize * Math.max(...lines.map((l) => l.length)) * 0.6;
+    const maxWidth = getTextMaxWidth(selectedTextClip, canvasWidth);
+    const metrics = titleEngine.measureText(text, style, maxWidth);
 
-    const textWidth = estimatedWidth * transform.scale.x * displayScale;
-    const textHeight = estimatedHeight * transform.scale.y * displayScale;
+    const textWidth = metrics.width * transform.scale.x * displayScale;
+    const textHeight = metrics.height * transform.scale.y * displayScale;
 
     const posX = transform.position.x * canvasWidth * displayScale;
     const posY = transform.position.y * canvasHeight * displayScale;
@@ -4719,7 +4742,12 @@ export const Preview: React.FC = () => {
     const canvasOffsetX = canvasRect.left - overlayRect.left + letterboxOffsetX;
     const canvasOffsetY = canvasRect.top - overlayRect.top + letterboxOffsetY;
 
-    const centerX = canvasOffsetX + posX;
+    let centerX = canvasOffsetX + posX;
+    if (style.textAlign === "left") {
+      centerX = canvasOffsetX + posX + textWidth / 2;
+    } else if (style.textAlign === "right") {
+      centerX = canvasOffsetX + posX - textWidth / 2;
+    }
     const centerY = canvasOffsetY + posY;
 
     return {
@@ -4816,6 +4844,10 @@ export const Preview: React.FC = () => {
         baseHeight = canvasHeight;
         baseWidth = canvasHeight * svgAspect;
       }
+    } else if (selectedShapeClip.type === "shape") {
+      const baseSize = Math.min(canvasWidth, canvasHeight);
+      baseWidth = baseSize * 0.15;
+      baseHeight = baseSize * 0.15;
     } else {
       baseWidth = 200;
       baseHeight = 200;
@@ -4901,6 +4933,10 @@ export const Preview: React.FC = () => {
           baseHeight = canvasHeight;
           baseWidth = canvasHeight * svgAspect;
         }
+      } else if (clip.type === "shape") {
+        const baseSize = Math.min(canvasWidth, canvasHeight);
+        baseWidth = baseSize * 0.15;
+        baseHeight = baseSize * 0.15;
       } else {
         baseWidth = 200;
         baseHeight = 200;
@@ -5355,12 +5391,25 @@ export const Preview: React.FC = () => {
           let newX = startTransform.x;
           let newY = startTransform.y;
 
-          const baseWidth =
-            shapeClipBounds.width / Math.max(0.001, startTransform.scaleX) /
-            displayScale;
-          const baseHeight =
-            shapeClipBounds.height / Math.max(0.001, startTransform.scaleY) /
-            displayScale;
+          let baseWidth = 200;
+          let baseHeight = 200;
+          if (activeShapeClip.type === "svg") {
+            const svgClip = activeShapeClip as SVGClip;
+            const svgWidth = svgClip.viewBox?.width || 200;
+            const svgHeight = svgClip.viewBox?.height || 200;
+            const svgAspect = svgWidth / svgHeight;
+            if (svgAspect > 1) {
+              baseWidth = settings.width;
+              baseHeight = settings.width / svgAspect;
+            } else {
+              baseHeight = settings.height;
+              baseWidth = settings.height * svgAspect;
+            }
+          } else if (activeShapeClip.type === "shape") {
+            const baseSize = Math.min(settings.width, settings.height);
+            baseWidth = baseSize * 0.15;
+            baseHeight = baseSize * 0.15;
+          }
           const scaleDeltaX = deltaX / displayScale / baseWidth;
           const scaleDeltaY = deltaY / displayScale / baseHeight;
           const keepAspect = lockAspectRatio && activeHandle.length === 2;
@@ -5932,8 +5981,9 @@ export const Preview: React.FC = () => {
                         clip.style.textDecoration && clip.style.textDecoration !== "none"
                           ? clip.style.textDecoration
                           : undefined,
+                      width: "max-content",
+                      maxWidth: `${getTextMaxWidth(clip, settings.width) * nativeTextOverlayScale}px`,
                       whiteSpace: "pre-wrap",
-                      maxWidth: "90%",
                       overflowWrap: "break-word",
                       textShadow:
                         clip.style.shadowColor && clip.style.shadowBlur

@@ -454,11 +454,22 @@ export class PlaybackController {
         }, this.config.frameRenderTimeout);
       });
 
+      const renderPromise = this.videoEngine.renderFrame(this.project, time);
+      let isAbandoned = true;
+
+      renderPromise.then((resolvedFrame) => {
+        if (isAbandoned) {
+          try { resolvedFrame.image.close(); } catch (e) {}
+        }
+      }).catch(() => {});
+
       // Race between render and timeout
       const frame = await Promise.race([
-        this.videoEngine.renderFrame(this.project, time),
+        renderPromise,
         timeoutPromise,
       ]);
+
+      isAbandoned = false;
 
       const renderTime = performance.now() - startTime;
       this.trackFrameRenderTime(renderTime);
@@ -622,10 +633,7 @@ export class PlaybackController {
     await Promise.all(decodePromises);
   }
 
-  private async decodeAudioBuffer(mediaItem: {
-    id: string;
-    blob?: Blob | null;
-  }): Promise<AudioBuffer | null> {
+  private async decodeAudioBuffer(mediaItem: import("../types/project").MediaItem): Promise<AudioBuffer | null> {
     if (this.audioBufferCache.has(mediaItem.id)) {
       return this.audioBufferCache.get(mediaItem.id) || null;
     }
@@ -634,15 +642,15 @@ export class PlaybackController {
       return this.audioDecodePromises.get(mediaItem.id) || null;
     }
 
-    if (!mediaItem.blob) return null;
+    if (!mediaItem.blob || !this.audioEngine) return null;
 
     const audioContext = this.masterClock.getAudioContext();
 
-    const decodePromise = mediaItem.blob
-      .arrayBuffer()
-      .then((arrayBuffer) => audioContext.decodeAudioData(arrayBuffer))
+    const decodePromise = this.audioEngine.getAudioBuffer(mediaItem, audioContext, 0)
       .then((buffer) => {
-        this.audioBufferCache.set(mediaItem.id, buffer);
+        if (buffer) {
+          this.audioBufferCache.set(mediaItem.id, buffer);
+        }
         this.audioDecodePromises.delete(mediaItem.id);
         return buffer;
       })
@@ -655,10 +663,7 @@ export class PlaybackController {
     return decodePromise;
   }
 
-  private getOrDecodeAudioBuffer(mediaItem: {
-    id: string;
-    blob?: Blob | null;
-  }): AudioBuffer | null {
+  private getOrDecodeAudioBuffer(mediaItem: import("../types/project").MediaItem): AudioBuffer | null {
     const cached = this.audioBufferCache.get(mediaItem.id);
     if (cached) return cached;
 

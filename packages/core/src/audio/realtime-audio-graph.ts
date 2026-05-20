@@ -540,22 +540,22 @@ export class RealtimeAudioGraph {
 
     const source = this.audioContext.createBufferSource();
     source.buffer = schedule.audioBuffer;
-    source.playbackRate.value = schedule.speed;
+    source.playbackRate.value = schedule.speed * this.masterClock.rate;
 
     const clipGain = this.audioContext.createGain();
 
     source.connect(clipGain);
     clipGain.connect(trackNodes.inputGain);
 
+    const playbackRate = this.masterClock.rate;
     const contextStartTime =
       this.audioContext.currentTime +
-      schedule.startTime -
-      this.masterClock.currentTime;
+      (schedule.startTime - this.masterClock.currentTime) / playbackRate;
     const duration = schedule.endTime - schedule.startTime;
 
     let playbackStartTime = contextStartTime;
     let clipOffset = 0;
-    let playbackDuration = duration;
+    let playbackDuration = duration / playbackRate;
 
     if (contextStartTime > this.audioContext.currentTime) {
       scheduleVolumeAutomationOnGain(
@@ -566,11 +566,12 @@ export class RealtimeAudioGraph {
         playbackDuration,
         playbackStartTime,
       );
-      source.start(contextStartTime, schedule.mediaOffset, duration);
+      source.start(contextStartTime, schedule.mediaOffset);
+      source.stop(contextStartTime + playbackDuration);
     } else {
       clipOffset = this.masterClock.currentTime - schedule.startTime;
-      const sourceOffset = clipOffset + schedule.mediaOffset;
-      playbackDuration = duration - clipOffset;
+      const sourceOffset = clipOffset * schedule.speed + schedule.mediaOffset;
+      playbackDuration = (duration - clipOffset) / playbackRate;
       playbackStartTime = this.audioContext.currentTime;
 
       if (
@@ -585,7 +586,8 @@ export class RealtimeAudioGraph {
           playbackDuration,
           playbackStartTime,
         );
-        source.start(0, sourceOffset, playbackDuration);
+        source.start(0, sourceOffset);
+        source.stop(playbackStartTime + playbackDuration);
       } else {
         source.disconnect();
         clipGain.disconnect();
