@@ -331,11 +331,15 @@ export class AudioEngine {
     rangeEnd: number,
     timeline: Timeline,
   ): AudioClipRenderInfo {
-    const clipStart = Math.max(clip.startTime, rangeStart);
-    const clipEnd = Math.min(clip.startTime + clip.duration, rangeEnd);
-    const offsetInClip = clipStart - clip.startTime;
+    const safeClipStartTime = Number.isFinite(clip.startTime) ? clip.startTime : 0;
+    const safeClipDuration = Number.isFinite(clip.duration) ? clip.duration : 10;
+    const safeInPoint = Number.isFinite(clip.inPoint) ? clip.inPoint : 0;
+
+    const clipStart = Math.max(safeClipStartTime, rangeStart);
+    const clipEnd = Math.min(safeClipStartTime + safeClipDuration, rangeEnd);
+    const offsetInClip = clipStart - safeClipStartTime;
     const speed = (clip as any).speed || 1;
-    const sourceTime = clip.inPoint + offsetInClip * speed;
+    const sourceTime = safeInPoint + offsetInClip * speed;
     const clipAudioEffects = resolveClipAudioEffects(clip, timeline);
     const pan = getPanFromAudioEffects(
       clipAudioEffects.length > 0 ? clipAudioEffects : clip.effects,
@@ -460,10 +464,17 @@ export class AudioEngine {
       ? processedClip.buffer.duration - processedClip.startOffset
       : processedClip.startOffset;
 
+    const safeContextStartTime = Number.isFinite(contextStartTime) ? Math.max(0, contextStartTime) : 0;
+    const safeStartOffset = Number.isFinite(startOffset) ? Math.max(0, startOffset) : 0;
+    const safeRenderDuration = Math.max(0, Math.min(
+      Number.isFinite(clipInfo.duration) ? clipInfo.duration : 10, 
+      Number.isFinite(processedClip.renderDuration) ? processedClip.renderDuration : 10
+    ));
+
     source.start(
-      contextStartTime,
-      Math.max(0, startOffset),
-      Math.min(clipInfo.duration, processedClip.renderDuration),
+      safeContextStartTime,
+      safeStartOffset,
+      safeRenderDuration,
     );
   }
 
@@ -613,10 +624,15 @@ export class AudioEngine {
       const source = context.createBufferSource();
       source.buffer = wrapped.buffer;
       source.connect(volumeGainNode);
+      const safeContextStartTime = Number.isFinite(contextStartTime) ? contextStartTime : 0;
+      const safeStart = safeContextStartTime + (overlapStart - rangeStart);
+      const safeOffset = Math.max(0, overlapStart - bufferStart);
+      const safeDuration = Math.max(0, overlapEnd - overlapStart);
+
       source.start(
-        contextStartTime + (overlapStart - rangeStart),
-        overlapStart - bufferStart,
-        overlapEnd - overlapStart,
+        Number.isFinite(safeStart) ? safeStart : 0,
+        Number.isFinite(safeOffset) ? safeOffset : 0,
+        Number.isFinite(safeDuration) ? safeDuration : 10,
       );
       rendered = true;
     }

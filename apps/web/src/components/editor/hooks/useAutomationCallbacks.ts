@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { useSettingsStore } from "../../../stores/settings-store";
 import { useElevenLabsApi } from "../inspector/hooks/useElevenLabsApi";
-import { getSecret } from "../../../services/secure-storage";
+import { getSecret, isSessionUnlocked } from "../../../services/secure-storage";
 import { initializeTranscriptionService, type Project, type MediaItem, type Subtitle } from "@openreel/core";
 import { getMediaBridge, initializeMediaBridge } from "../../../bridges/media-bridge";
 import { saveMediaBlob } from "../../../services/media-storage";
@@ -156,7 +156,13 @@ export function useAutomationCallbacks() {
   const generateTTS = useCallback(async (subtitles: Subtitle[], project: Project): Promise<any[]> => {
     const config = project.settings.automationConfig;
     // Ưu tiên provider được cấu hình trong automation, sau đó dùng defaultTtsProvider
-    const provider = config?.ttsProvider || defaultTtsProvider || "piper";
+    let provider = config?.ttsProvider || defaultTtsProvider || "piper";
+    
+    if (provider === "elevenlabs" && (!hasElevenLabsKey || !isSessionUnlocked())) {
+      console.warn(`[TTS] ElevenLabs session is locked or key is missing. Falling back.`);
+      provider = defaultTtsProvider === "vieneu" ? "vieneu" : "piper";
+    }
+
     const voiceId = config?.ttsVoiceId || (provider === "vieneu" ? "default" : favoriteVoices.length > 0 ? favoriteVoices[0].voiceId : "amy");
     const speed = config?.ttsSpeed || 1.0;
 

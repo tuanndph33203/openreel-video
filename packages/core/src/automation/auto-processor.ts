@@ -140,6 +140,31 @@ export class AutoProcessor {
         throw new Error(`[initializeExportEngine] ${(err as Error).message}\nStack: ${(err as Error).stack}`);
       }
 
+      // Sanitize clonedProject timeline to prevent Infinity/NaN values crashing the AudioEngine
+      if (clonedProject.timeline && clonedProject.timeline.tracks) {
+        const fallbackDuration = (typeof newMediaItem?.metadata?.duration === 'number' && Number.isFinite(newMediaItem.metadata.duration) && newMediaItem.metadata.duration > 0) ? newMediaItem.metadata.duration : 10;
+        
+        if (!Number.isFinite(clonedProject.timeline.duration)) {
+          (clonedProject.timeline as any).duration = fallbackDuration;
+        }
+
+        clonedProject.timeline.tracks.forEach(track => {
+          if (track.clips) {
+            track.clips.forEach(clip => {
+              if (!Number.isFinite(clip.duration)) {
+                (clip as any).duration = fallbackDuration;
+              }
+              if (!Number.isFinite(clip.startTime)) {
+                (clip as any).startTime = 0;
+              }
+              if (!Number.isFinite(clip.inPoint)) {
+                (clip as any).inPoint = 0;
+              }
+            });
+          }
+        });
+      }
+
       // Run export (generator) and write to the stream
       let exportGen;
       try {
@@ -238,7 +263,7 @@ export class AutoProcessor {
       for (const clip of track.clips) {
         const media = (project.mediaLibrary?.items || []).find(m => m.id === clip.mediaId);
         if (!media) continue;
-        const duration = media.metadata.duration ?? 0;
+        const duration = Number.isFinite(media.metadata.duration) ? media.metadata.duration : (media.metadata.duration ?? 0);
         if (duration > longestDuration) {
           longestDuration = duration;
           longestClip = clip;
@@ -264,7 +289,8 @@ export class AutoProcessor {
       }
 
       // Create a new clip on that track at startTime 0
-      const duration = newMediaItem.metadata.duration || 10;
+      const extractedDuration = newMediaItem.metadata.duration;
+      const duration = (extractedDuration && Number.isFinite(extractedDuration)) ? extractedDuration : 10;
       const newClip: Clip = {
         id: `clip-auto-${Date.now()}`,
         mediaId: newMediaItem.id,
@@ -337,7 +363,7 @@ async function createMediaItemFromFileHandle(fileHandle: FileSystemFileHandle): 
         video.addEventListener('loadedmetadata', resolve, { once: true });
         video.addEventListener('error', reject, { once: true });
       });
-      metadata.duration = video.duration;
+      metadata.duration = Number.isFinite(video.duration) ? video.duration : 0;
       metadata.width = video.videoWidth;
       metadata.height = video.videoHeight;
       metadata.frameRate = 30;

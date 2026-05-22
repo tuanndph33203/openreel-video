@@ -1213,6 +1213,26 @@ export const InspectorPanel: React.FC = () => {
               </Section>
             )}
 
+            {/* Text Clip Content Editor */}
+            {clipType === "text" && (
+              <Section title="Text Content" sectionId="text-content" defaultOpen={true}>
+                <div className="space-y-3">
+                  <textarea
+                    value={(selectedClip as any).text || ""}
+                    onChange={(e) => {
+                      const titleEngine = getTitleEngine();
+                      if (titleEngine) {
+                        titleEngine.updateTextClip(clipId, { text: e.target.value });
+                        forceUpdate();
+                      }
+                    }}
+                    className="w-full h-24 px-3 py-2 bg-background-tertiary border border-border rounded-lg text-xs text-text-primary resize-none focus:outline-none focus:border-primary"
+                    placeholder="Enter text..."
+                  />
+                </div>
+              </Section>
+            )}
+
             {/* Transform */}
             {showTransformControls && (
               <Section title="Transform" sectionId="transform">

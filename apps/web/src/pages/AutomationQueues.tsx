@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { AutomationManager } from '@openreel/core';
 import { useRouter } from '../hooks/use-router';
+import { SettingsDialog } from '../components/editor/settings/SettingsDialog';
+import { useSettingsStore } from '../stores/settings-store';
+import { Settings } from 'lucide-react';
 
 /**
  * Global queue page showing the status of automation jobs across all projects.
@@ -32,12 +35,21 @@ export const AutomationQueues: React.FC = () => {
       <div className="max-w-4xl mx-auto">
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-2xl font-bold text-text-primary">Automation Queues</h1>
-          <button
-            onClick={() => navigate('welcome')}
-            className="px-4 py-2 bg-background-secondary text-text-primary border border-border rounded-lg hover:bg-background-tertiary transition"
-          >
-            Back to Home
-          </button>
+          <div className="flex gap-3">
+            <button
+              onClick={() => useSettingsStore.getState().openSettings("api-keys")}
+              className="flex items-center gap-2 px-4 py-2 bg-background-secondary text-text-primary border border-border rounded-lg hover:bg-background-tertiary transition"
+            >
+              <Settings size={16} />
+              Settings & API Keys
+            </button>
+            <button
+              onClick={() => navigate('welcome')}
+              className="px-4 py-2 bg-background-secondary text-text-primary border border-border rounded-lg hover:bg-background-tertiary transition"
+            >
+              Back to Home
+            </button>
+          </div>
         </div>
 
         {statuses.length === 0 ? (
@@ -120,6 +132,7 @@ export const AutomationQueues: React.FC = () => {
           </div>
         )}
       </div>
+      <SettingsDialog />
     </div>
   );
 };
