@@ -21,6 +21,7 @@ import {
   Diamond,
   Sparkles,
   Play,
+  AlertCircle,
 } from "lucide-react";
 import { useProjectStore } from "../../stores/project-store";
 import { useUIStore } from "../../stores/ui-store";
@@ -30,6 +31,7 @@ import {
   getExportEngine,
   getDeviceProfile,
   estimateExportTime,
+  AutomationManager,
   type VideoExportSettings,
   type AudioExportSettings,
   type ExportResult,
@@ -40,6 +42,8 @@ import { ExportDialog } from "./ExportDialog";
 import { ScreenRecorder } from "./ScreenRecorder";
 import { HistoryPanel } from "./inspector/HistoryPanel";
 import { ProjectSwitcher } from "./ProjectSwitcher";
+import { WatchFolderDialog } from "./WatchFolderDialog";
+import { useAutomationCallbacks } from "./hooks/useAutomationCallbacks";
 import { SettingsDialog } from "./settings/SettingsDialog";
 import { toast } from "../../stores/notification-store";
 import { useSettingsStore } from "../../stores/settings-store";
@@ -95,8 +99,43 @@ export const Toolbar: React.FC = () => {
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
   const [isRecorderOpen, setIsRecorderOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isWatchFolderOpen, setIsWatchFolderOpen] = useState(false);
   const { importMedia } = useProjectStore();
   const { track } = useAnalytics();
+  const automationCallbacks = useAutomationCallbacks();
+
+  const [automationQueues, setAutomationQueues] = useState<any[]>([]);
+
+  useEffect(() => {
+    const refresh = () => {
+      setAutomationQueues(AutomationManager.getInstance().getStatus());
+    };
+    refresh();
+    const interval = setInterval(refresh, 2000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const currentProjectQueue = automationQueues.find(q => q.projectId === project?.id);
+  const isWatching = !!project?.settings?.automationConfig?.watchFolderName;
+  const needsAuth = isWatching && currentProjectQueue && !currentProjectQueue.permissionGranted;
+
+  const handleWatchFolderClick = useCallback(async () => {
+    if (needsAuth && currentProjectQueue) {
+      try {
+        const granted = await AutomationManager.getInstance().requestPermission(currentProjectQueue.projectId);
+        if (granted) {
+          toast.success("Watch folder authorized!", `Successfully gained access to "${project?.settings?.automationConfig?.watchFolderName}".`);
+          setAutomationQueues(AutomationManager.getInstance().getStatus()); // immediate refresh
+        } else {
+          toast.error("Permission denied", "We need access to read and write to this folder.");
+        }
+      } catch (err) {
+        toast.error("Authorization failed", (err as Error).message);
+      }
+    } else {
+      setIsWatchFolderOpen(true);
+    }
+  }, [needsAuth, currentProjectQueue, project]);
 
   const handleStartTour = useCallback(() => {
     localStorage.removeItem(ONBOARDING_KEY);
@@ -137,6 +176,25 @@ export const Toolbar: React.FC = () => {
       getDeviceProfile().then(setDeviceProfile);
     }
   }, [isExportOpen, deviceProfile]);
+
+  useEffect(() => {
+    if (project && project.settings.automationConfig?.watchFolderName) {
+      const statusList = AutomationManager.getInstance().getStatus();
+      const isAlreadyWatched = statusList.some(s => s.projectId === project.id);
+      if (!isAlreadyWatched) {
+        import("../../services/media-storage").then(({ loadDirectoryHandle }) => {
+          loadDirectoryHandle(project.id).then((dirInfo) => {
+            if (dirInfo?.handle) {
+              AutomationManager.getInstance().registerProject(project, dirInfo.handle, automationCallbacks);
+              toast.success("Resumed watching folder", `Folder "${dirInfo.folderName}" is being monitored.`);
+            }
+          }).catch(err => {
+            console.error("Failed to auto-resume watch folder", err);
+          });
+        });
+      }
+    }
+  }, [project, automationCallbacks]);
 
   useEffect(() => {
     if (!deviceProfile || !project.timeline?.duration) {
@@ -869,6 +927,43 @@ export const Toolbar: React.FC = () => {
           </TooltipContent>
         </Tooltip>
 
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={handleWatchFolderClick}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
+                needsAuth
+                  ? "bg-amber-600 hover:bg-amber-700 text-white font-semibold shadow-md animate-pulse"
+                  : project?.settings.automationConfig?.watchFolderName
+                    ? "bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-md"
+                    : "bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400"
+              }`}
+            >
+              {needsAuth ? (
+                <AlertCircle size={14} className="text-white shrink-0" />
+              ) : (
+                <Zap size={14} className={project?.settings.automationConfig?.watchFolderName ? "fill-current animate-pulse text-white" : "fill-current"} />
+              )}
+              <span className="text-sm font-medium">
+                {needsAuth
+                  ? `Authorize: ${project?.settings.automationConfig?.watchFolderName}`
+                  : project?.settings.automationConfig?.watchFolderName 
+                    ? `Watching: ${project.settings.automationConfig.watchFolderName}` 
+                    : "Watch Folder"}
+              </span>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>
+              {needsAuth
+                ? `Permission required to watch folder "${project?.settings.automationConfig?.watchFolderName}". Click to authorize.`
+                : project?.settings.automationConfig?.watchFolderName 
+                  ? `Currently monitoring "${project.settings.automationConfig.watchFolderName}". Click to modify.`
+                  : "Select a folder to auto-process videos for this project"}
+            </p>
+          </TooltipContent>
+        </Tooltip>
+
         <div className="relative">
           {exportState.isExporting ? (
             <div className="h-10 px-4 bg-background-secondary border border-border rounded-lg flex items-center gap-3 min-w-[200px]">
@@ -1048,6 +1143,16 @@ export const Toolbar: React.FC = () => {
           </div>
         </>
       )}
+      <WatchFolderDialog 
+        open={isWatchFolderOpen} 
+        onOpenChange={setIsWatchFolderOpen} 
+        onConfirm={(dirHandle) => {
+          const freshProject = useProjectStore.getState().project;
+          if (freshProject) {
+            AutomationManager.getInstance().registerProject(freshProject, dirHandle, automationCallbacks);
+          }
+        }}
+      />
     </div>
   );
 };

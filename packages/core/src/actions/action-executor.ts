@@ -460,11 +460,11 @@ export class ActionExecutor {
           duration?: number;
           audioTrackIndex?: number;
         };
-        const track = timeline.tracks.find(
+        const track = (timeline.tracks || []).find(
           (t: MutableTrack) => t.id === params.trackId,
         );
         if (track) {
-          const mediaItem = project.mediaLibrary.items.find(
+          const mediaItem = (project.mediaLibrary?.items || []).find(
             (item) => item.id === params.mediaId,
           );
           // Use provided duration, or fall back to media duration (if > 0), or default to 5
@@ -1062,7 +1062,7 @@ export class ActionExecutor {
         };
         const clipA = this.findClip(timeline, params.clipAId);
         if (clipA) {
-          const track = timeline.tracks.find(
+          const track = (timeline.tracks || []).find(
             (t: MutableTrack) => t.id === clipA.trackId,
           );
           if (track) {
@@ -1331,8 +1331,11 @@ export class ActionExecutor {
     timeline: MutableTimeline,
     clipId: string,
   ): MutableClip | null {
-    for (const track of timeline.tracks) {
-      const clip = track.clips.find((c: MutableClip) => c.id === clipId);
+    const tracks = timeline?.tracks || [];
+    for (const track of tracks) {
+      if (!track) continue;
+      const clips = track.clips || [];
+      const clip = clips.find((c: MutableClip) => c.id === clipId);
       if (clip) return clip;
     }
     return null;

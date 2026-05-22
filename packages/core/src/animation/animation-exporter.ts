@@ -62,7 +62,7 @@ export class AnimationExporter {
         backgroundColor: "#000000",
       };
 
-      const assets = this.exportAssets(project.mediaLibrary.items);
+      const assets = this.exportAssets(project.mediaLibrary?.items || []);
       const layers: LayerDefinition[] = [];
 
       for (const textClip of textClips) {
@@ -85,7 +85,7 @@ export class AnimationExporter {
 
       for (const track of project.timeline.tracks) {
         for (const clip of track.clips) {
-          const mediaItem = project.mediaLibrary.items.find(
+          const mediaItem = (project.mediaLibrary?.items || []).find(
             (item) => item.id === clip.mediaId,
           );
           if (!mediaItem) {
@@ -380,7 +380,7 @@ export class AnimationExporter {
       if (track.type !== "audio") continue;
 
       for (const clip of track.clips) {
-        const mediaItem = project.mediaLibrary.items.find(
+        const mediaItem = (project.mediaLibrary?.items || []).find(
           (item) => item.id === clip.mediaId,
         );
         if (!mediaItem || mediaItem.type !== "audio") continue;

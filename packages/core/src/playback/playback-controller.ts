@@ -575,7 +575,7 @@ export class PlaybackController {
         const clipEnd = clip.startTime + clip.duration;
         if (clipEnd <= time || clip.startTime > time + 1) continue;
 
-        const mediaItem = mediaLibrary.items.find((m) => m.id === clip.mediaId);
+        const mediaItem = (mediaLibrary?.items || []).find((m) => m.id === clip.mediaId);
         if (!mediaItem?.blob) continue;
 
         const cachedBuffer = this.getOrDecodeAudioBuffer(mediaItem);
@@ -614,7 +614,7 @@ export class PlaybackController {
       if (track.type !== "audio" && track.type !== "video") continue;
 
       for (const clip of track.clips) {
-        const mediaItem = mediaLibrary.items.find((m) => m.id === clip.mediaId);
+        const mediaItem = (mediaLibrary?.items || []).find((m) => m.id === clip.mediaId);
         if (mediaItem?.blob && !this.audioBufferCache.has(mediaItem.id)) {
           mediaIdsToPreload.add(mediaItem.id);
         }
@@ -624,7 +624,7 @@ export class PlaybackController {
     const decodePromises: Promise<AudioBuffer | null>[] = [];
 
     for (const mediaId of mediaIdsToPreload) {
-      const mediaItem = mediaLibrary.items.find((m) => m.id === mediaId);
+      const mediaItem = (mediaLibrary?.items || []).find((m) => m.id === mediaId);
       if (mediaItem?.blob) {
         decodePromises.push(this.decodeAudioBuffer(mediaItem));
       }

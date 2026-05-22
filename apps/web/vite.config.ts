@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
+import fs from "fs";
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -10,6 +11,101 @@ export default defineConfig({
       name: "api-proxy",
       configureServer(server) {
         server.middlewares.use(async (req, res, next) => {
+          if (req.url && req.url.startsWith("/api/log-error")) {
+            try {
+              let bodyStr = "";
+              for await (const chunk of req) {
+                bodyStr += chunk;
+              }
+              const data = JSON.parse(bodyStr);
+              console.error("\n\x1b[41m\x1b[37m\x1b[1m BROWSER AUTO-PROCESSOR ERROR \x1b[0m");
+              console.error(`\x1b[31m\x1b[1mMessage:\x1b[0m \x1b[31m\x1b[1m${data.message}\x1b[0m`);
+              
+              if (data.stack) {
+                const stackLines = data.stack.split("\n");
+                let printedCrashSnippet = false;
+                
+                for (const rawLine of stackLines) {
+                  const line = rawLine.trim();
+                  // Match standard Chrome/Edge/Firefox stack lines
+                  // Chrome/Edge format: at FunctionName (http://host/path:line:col) or at http://host/path:line:col
+                  // Firefox format: FunctionName@http://host/path:line:col or @http://host/path:line:col
+                  const chromeMatch = line.match(/(?:at\s+)?([^\s(]+)?\s*\(?(https?:\/\/[^\/]+(\/[^?#:\s)]+)(?:\?[^:\s)]+)?(?::(\d+))(?::(\d+)))\)?/i);
+                  const firefoxMatch = !chromeMatch ? line.match(/([^@]+)?@?(https?:\/\/[^\/]+(\/[^?#:\s)]+)(?:\?[^:\s)]+)?(?::(\d+))(?::(\d+)))/i) : null;
+                  
+                  const match = chromeMatch || firefoxMatch;
+                  if (match) {
+                    const fnName = (match[1] || "anonymous").trim();
+                    const fullUrl = match[2];
+                    let urlPath = match[3];
+                    const lineNum = parseInt(match[4], 10);
+                    const colNum = parseInt(match[5], 10);
+                    
+                    let absPath = "";
+                    if (urlPath.startsWith("/@fs/")) {
+                      absPath = urlPath.substring(5);
+                    } else {
+                      // Try to resolve the web app relative URL to absolute workspace path
+                      // __dirname is openreel-video/apps/web
+                      const workspaceRoot = path.resolve(__dirname, "../../");
+                      absPath = path.join(workspaceRoot, urlPath.replace(/^\//, ""));
+                      if (!fs.existsSync(absPath)) {
+                        absPath = path.resolve(__dirname, urlPath.replace(/^\//, ""));
+                      }
+                    }
+                    
+                    // Normalize Windows path formatting (e.g. /C:/... -> C:/...)
+                    absPath = absPath.replace(/^\/([a-zA-Z]):/, "$1:").replace(/\//g, path.sep);
+                    
+                    if (fs.existsSync(absPath) && fs.statSync(absPath).isFile()) {
+                      if (!printedCrashSnippet) {
+                        console.error(`\n\x1b[33m\x1b[1mCRASH POINT DETECTED AT:\x1b[0m \x1b[4m\x1b[36m${absPath}:${lineNum}:${colNum}\x1b[0m \x1b[2m(in ${fnName})\x1b[0m`);
+                        try {
+                          const fileContent = fs.readFileSync(absPath, "utf8");
+                          const fileLines = fileContent.split(/\r?\n/);
+                          const startLine = Math.max(0, lineNum - 4);
+                          const endLine = Math.min(fileLines.length, lineNum + 3);
+                          
+                          console.error("\x1b[90m--------------------------------------------------------------------------------\x1b[0m");
+                          for (let i = startLine; i < endLine; i++) {
+                            const isCrashLine = i === lineNum - 1;
+                            const lineNoStr = String(i + 1).padStart(5, " ");
+                            if (isCrashLine) {
+                              console.error(`\x1b[31m\x1b[1m=> ${lineNoStr} | ${fileLines[i] || ""}\x1b[0m`);
+                            } else {
+                              console.error(`\x1b[90m   ${lineNoStr} | ${fileLines[i] || ""}\x1b[0m`);
+                            }
+                          }
+                          console.error("\x1b[90m--------------------------------------------------------------------------------\x1b[0m");
+                        } catch (readErr) {
+                          console.error(`\x1b[90m[Could not read source file for snippet: ${(readErr as Error).message}]\x1b[0m`);
+                        }
+                        printedCrashSnippet = true;
+                      }
+                      console.error(`    at ${fnName} (${absPath}:${lineNum}:${colNum})`);
+                    } else {
+                      console.error(`    at ${fnName} (${fullUrl})`);
+                    }
+                  } else {
+                    console.error("  " + rawLine);
+                  }
+                }
+              } else {
+                console.error("[No stack trace provided]");
+              }
+              console.error("\x1b[41m\x1b[37m\x1b[1m=========================================================================\x1b[0m\n");
+              
+              res.statusCode = 200;
+              res.setHeader("Content-Type", "application/json");
+              res.end(JSON.stringify({ success: true }));
+              return;
+            } catch (err) {
+              console.error("[Vite Log-Error Middleware Error]", err);
+              res.statusCode = 500;
+              res.end();
+              return;
+            }
+          }
           if (req.url && req.url.startsWith("/api/proxy/")) {
             try {
               const urlPath = req.url.replace(/^\/api\/proxy\//, "");

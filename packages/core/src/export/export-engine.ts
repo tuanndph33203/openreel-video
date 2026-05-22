@@ -216,6 +216,7 @@ export class ExportEngine {
     writableStream?: FileSystemWritableFileStream,
   ): AsyncGenerator<ExportProgress, ExportResult> {
     this.ensureInitialized();
+    project = this.normalizeProject(project);
 
     if (!this.mediabunny) {
       const errorMessage = this.isWebCodecsSupported()
@@ -406,7 +407,7 @@ export class ExportEngine {
       for (const track of project.timeline.tracks) {
         if (track.type !== "video") continue;
         for (const clip of track.clips) {
-          const mediaItem = project.mediaLibrary.items.find(
+          const mediaItem = (project.mediaLibrary?.items || []).find(
             (m) => m.id === clip.mediaId,
           );
           if (mediaItem?.blob && !videoMediaIds.includes(mediaItem.id)) {
@@ -554,6 +555,7 @@ export class ExportEngine {
     settings: Partial<AudioExportSettings> = {},
   ): AsyncGenerator<ExportProgress, ExportResult> {
     this.ensureInitialized();
+    project = this.normalizeProject(project);
 
     const fullSettings: AudioExportSettings = {
       ...DEFAULT_AUDIO_SETTINGS,
@@ -649,6 +651,7 @@ export class ExportEngine {
     settings: Partial<ImageExportSettings> = {},
   ): Promise<ExportResult> {
     this.ensureInitialized();
+    project = this.normalizeProject(project);
 
     const fullSettings: ImageExportSettings = {
       ...DEFAULT_IMAGE_SETTINGS,
@@ -724,6 +727,7 @@ export class ExportEngine {
     project: Project,
     settings: Partial<ImageExportSettings> = {},
   ): Promise<ExportResult> {
+    project = this.normalizeProject(project);
     return this.exportFrame(project, 0, settings);
   }
 
@@ -732,6 +736,7 @@ export class ExportEngine {
     settings: Partial<SequenceExportSettings> = {},
   ): AsyncGenerator<ExportProgress, ExportResult> {
     this.ensureInitialized();
+    project = this.normalizeProject(project);
 
     const { timeline } = project;
     const frameRate = project.settings.frameRate;
@@ -1018,6 +1023,7 @@ export class ExportEngine {
     project: Project,
     settings: VideoExportSettings | AudioExportSettings,
   ): number {
+    project = this.normalizeProject(project);
     const duration = project.timeline.duration;
 
     if ("codec" in settings) {
@@ -1041,6 +1047,7 @@ export class ExportEngine {
     project: Project,
     settings: VideoExportSettings | AudioExportSettings,
   ): number {
+    project = this.normalizeProject(project);
     const duration = project.timeline.duration;
 
     if ("codec" in settings) {
@@ -1430,6 +1437,40 @@ export class ExportEngine {
       this.upscalingEngine = null;
     }
     this.initialized = false;
+  }
+
+  private normalizeProject(project: Project): Project {
+    const mediaLibrary = project.mediaLibrary ? {
+      ...project.mediaLibrary,
+      items: project.mediaLibrary.items || [],
+    } : { items: [] };
+
+    const timeline = project.timeline ? {
+      ...project.timeline,
+      tracks: project.timeline.tracks || [],
+      subtitles: project.timeline.subtitles || [],
+      duration: project.timeline.duration || 0,
+      markers: project.timeline.markers || [],
+    } : { tracks: [], subtitles: [], duration: 0, markers: [] };
+
+    const safeTracks = timeline.tracks.map(track => {
+      if (!track) return track;
+      return {
+        ...track,
+        clips: track.clips || [],
+        transitions: track.transitions || [],
+      };
+    });
+
+    return {
+      ...project,
+      settings: project.settings || { width: 1920, height: 1080, frameRate: 30, sampleRate: 44100, channels: 2 },
+      mediaLibrary,
+      timeline: {
+        ...timeline,
+        tracks: safeTracks,
+      },
+    };
   }
 }
 let exportEngineInstance: ExportEngine | null = null;

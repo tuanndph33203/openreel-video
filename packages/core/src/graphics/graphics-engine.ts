@@ -421,6 +421,7 @@ export class GraphicsEngine {
     time: number,
     width: number,
     height: number,
+    backdropBg?: OffscreenCanvas | HTMLCanvasElement,
   ): Promise<GraphicRenderResult> {
     const canvas =
       typeof OffscreenCanvas !== "undefined"
@@ -449,7 +450,7 @@ export class GraphicsEngine {
 
     switch (graphic.type) {
       case "shape":
-        this.renderShape(ctx, graphic as ShapeClip, width, height);
+        this.renderShape(ctx, graphic as ShapeClip, width, height, backdropBg);
         break;
       case "svg":
         await this.renderSVG(
@@ -474,6 +475,7 @@ export class GraphicsEngine {
     shape: ShapeClip,
     width: number,
     height: number,
+    backdropBg?: OffscreenCanvas | HTMLCanvasElement,
   ): void {
     const { style, shapeType } = shape;
     const baseSize = Math.min(width, height);
@@ -525,6 +527,21 @@ export class GraphicsEngine {
           this.drawPolygonCentered(ctx, shape.points, shapeSize);
         }
         break;
+    }
+
+    if (
+      shapeType === "rectangle" &&
+      style.backdropBlur &&
+      style.backdropBlur > 0 &&
+      backdropBg
+    ) {
+      ctx.save();
+      ctx.clip();
+      ctx.resetTransform();
+      ctx.filter = `blur(${style.backdropBlur}px)`;
+      ctx.drawImage(backdropBg, 0, 0);
+      ctx.filter = "none";
+      ctx.restore();
     }
 
     if (style.fill.type !== "none") {

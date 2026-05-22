@@ -467,6 +467,7 @@ export interface ProjectState {
   checkForRecovery: () => Promise<AutoSaveMetadata[]>;
   recoverFromAutoSave: (saveId: string) => Promise<boolean>;
   forceSave: () => Promise<void>;
+  createExportSnapshot: () => Project;
   getFullProject: () => Project;
 }
 
@@ -475,7 +476,7 @@ export interface ProjectState {
  * This guarantees any "ghost" subtitles are automatically resolved and brought onto the timeline.
  */
 function syncSubtitlesToTextClips(project: Project, titleEngine: any) {
-  if (!titleEngine || !project.timeline?.subtitles) return;
+  if (!titleEngine || !project.timeline?.subtitles || !project.timeline?.tracks) return;
   const textClips = titleEngine.getAllTextClips();
   const textClipIds = new Set(textClips.map((c: any) => c.id));
 
@@ -4136,18 +4137,80 @@ export const useProjectStore = create<ProjectState>()(
         await autoSaveManager.forceSave(fullProject);
       },
 
-      getFullProject: (): Project => {
+      createExportSnapshot: (): Project => {
         const { project } = get();
         const titleEngine = useEngineStore.getState().getTitleEngine();
         const graphicsEngine = useEngineStore.getState().getGraphicsEngine();
 
+        const effectsBridge = getEffectsBridge();
+        const tracksWithEffects = project.timeline.tracks.map((track) => ({
+          ...track,
+          clips: track.clips.map((clip) => {
+            const effectData = effectsBridge.serializeEffects(clip.id);
+            return {
+              ...clip,
+              effects: effectData.effects,
+            };
+          }),
+        }));
+
+        const allTextClips = titleEngine?.getAllTextClips() || [];
+        const allShapeClips = graphicsEngine?.getAllShapeClips() || [];
+        const allSVGClips = graphicsEngine?.getAllSVGClips() || [];
+        const allStickerClips = graphicsEngine?.getAllStickerClips() || [];
+
+        // Ensure all text and graphics tracks exist in the timeline so they get rendered during export
+        const existingTrackIds = new Set(tracksWithEffects.map((t) => t.id));
+        
+        allTextClips.forEach((clip) => {
+          if (!existingTrackIds.has(clip.trackId)) {
+            tracksWithEffects.push({
+              id: clip.trackId,
+              type: "text",
+              name: "Text Track",
+              clips: [],
+              transitions: [],
+              locked: false,
+              hidden: false,
+              muted: false,
+              solo: false,
+            });
+            existingTrackIds.add(clip.trackId);
+          }
+        });
+
+        [...allShapeClips, ...allSVGClips, ...allStickerClips].forEach((clip) => {
+          if (!existingTrackIds.has(clip.trackId)) {
+            tracksWithEffects.push({
+              id: clip.trackId,
+              type: "graphics",
+              name: "Graphics Track",
+              clips: [],
+              transitions: [],
+              locked: false,
+              hidden: false,
+              muted: false,
+              solo: false,
+            });
+            existingTrackIds.add(clip.trackId);
+          }
+        });
+
         return {
           ...project,
-          textClips: titleEngine?.getAllTextClips() || [],
-          shapeClips: graphicsEngine?.getAllShapeClips() || [],
-          svgClips: graphicsEngine?.getAllSVGClips() || [],
-          stickerClips: graphicsEngine?.getAllStickerClips() || [],
+          timeline: {
+            ...project.timeline,
+            tracks: tracksWithEffects,
+          },
+          textClips: allTextClips,
+          shapeClips: allShapeClips,
+          svgClips: allSVGClips,
+          stickerClips: allStickerClips,
         };
+      },
+
+      getFullProject: (): Project => {
+        return get().createExportSnapshot();
       },
 
       getEditingTemplates: () => [...getBuiltInEditingTemplates()],

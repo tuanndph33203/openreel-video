@@ -22,6 +22,36 @@ registerServiceWorker().then((registration) => {
   }
 });
 
+if (import.meta.env.DEV) {
+  window.addEventListener("error", (event) => {
+    const error = event.error;
+    const message = error ? error.message : event.message;
+    const stack = error ? error.stack : `at ${event.filename}:${event.lineno}:${event.colno}`;
+    fetch("/api/log-error", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: `[BROWSER UNCAUGHT ERROR] ${message}`,
+        stack: stack,
+      }),
+    }).catch(() => {});
+  });
+
+  window.addEventListener("unhandledrejection", (event) => {
+    const error = event.reason;
+    const message = error instanceof Error ? error.message : String(error);
+    const stack = error instanceof Error ? error.stack : undefined;
+    fetch("/api/log-error", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: `[BROWSER UNHANDLED REJECTION] ${message}`,
+        stack: stack,
+      }),
+    }).catch(() => {});
+  });
+}
+
 const root = document.getElementById("root")!;
 
 ReactDOM.createRoot(root).render(

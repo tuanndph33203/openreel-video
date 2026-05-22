@@ -6,11 +6,13 @@ import { MobileBlocker } from "./components/MobileBlocker";
 import { WelcomeScreen } from "./components/welcome";
 import { RecoveryDialog } from "./components/welcome/RecoveryDialog";
 import { SharePage } from "./pages/SharePage";
+import { AutomationQueues } from "./pages/AutomationQueues";
 import { useUIStore } from "./stores/ui-store";
 import { useProjectStore } from "./stores/project-store";
 import { useRouter } from "./hooks/use-router";
 import { useProjectRecovery } from "./hooks/useProjectRecovery";
 import { useKieAIPoller } from "./hooks/useKieAIPoller";
+import { useWatchFolderAutoResume } from "./hooks/useWatchFolderAutoResume";
 import { SOCIAL_MEDIA_PRESETS, type SocialMediaCategory } from "@openreel/core";
 import { TooltipProvider } from "@openreel/ui";
 
@@ -45,6 +47,7 @@ function App() {
   const hasHandledInitialRoute = useRef(false);
 
   useKieAIPoller();
+  useWatchFolderAutoResume();
 
   useEffect(() => {
     if (hasHandledInitialRoute.current) return;
@@ -131,6 +134,7 @@ function App() {
         ? "recent"
         : undefined;
   const isSharePage = route === "share" && params.shareId;
+  const isAutomationPage = route === "automation-queues";
 
   return (
     <TooltipProvider>
@@ -138,6 +142,8 @@ function App() {
         <MobileBlocker />
         {isSharePage ? (
           <SharePage shareId={params.shareId!} />
+        ) : isAutomationPage ? (
+          <AutomationQueues />
         ) : showWelcome ? (
           <WelcomeScreen initialTab={initialTab} />
         ) : (

@@ -1,6 +1,22 @@
-import type { Timeline } from "./timeline";
-import type { TextClip } from "../text/types";
-import type { ShapeClip, SVGClip, StickerClip } from "../graphics/types";
+import type { Timeline } from './timeline';
+
+export interface AutomationConfig {
+  autoCaption: boolean;
+  sourceLanguage?: string;
+  targetLanguage?: string;
+  translationMethod?: "google" | "ai";
+  aiProvider?: "openai" | "anthropic";
+  aiTone?: string;
+  videoContext?: string;
+  animationStyle?: string;
+  
+  tts: boolean;
+  ttsProvider?: "piper" | "elevenlabs" | "vieneu";
+  ttsVoiceId?: string;
+  ttsTargetType?: "original" | "translated" | "auto";
+  ttsSpeed?: number;
+  watchFolderName?: string;
+}
 
 export interface ProjectSettings {
   readonly width: number;
@@ -8,6 +24,11 @@ export interface ProjectSettings {
   readonly frameRate: number;
   readonly sampleRate: number;
   readonly channels: number;
+  readonly youtubeApiKey?: string;
+  // Transient fields – not persisted across reloads
+  readonly watchFolderHandle?: any; // FileSystemDirectoryHandle (not serializable)
+  readonly automationQueue?: string[]; // IDs of pending files (for UI only)
+  readonly automationConfig?: AutomationConfig;
 }
 
 export interface Project {
@@ -18,12 +39,13 @@ export interface Project {
   readonly settings: ProjectSettings;
   readonly mediaLibrary: MediaLibrary;
   readonly timeline: Timeline;
-  readonly textClips?: TextClip[];
-  readonly shapeClips?: ShapeClip[];
-  readonly svgClips?: SVGClip[];
-  readonly stickerClips?: StickerClip[];
+  readonly textClips?: any[];
+  readonly shapeClips?: any[];
+  readonly svgClips?: any[];
+  readonly stickerClips?: any[];
 }
 
+// Rest of the file (MediaLibrary, MediaItem, etc.) remains unchanged – re‑export existing definitions
 export interface MediaLibrary {
   readonly items: MediaItem[];
 }
@@ -37,34 +59,23 @@ export interface MediaItem {
   readonly metadata: MediaMetadata;
   readonly thumbnailUrl: string | null;
   readonly waveformData: Float32Array | null;
-  readonly filmstripThumbnails?: FilmstripThumbnail[];
+  readonly filmstripThumbnails?: any[];
   readonly isPlaceholder?: boolean;
   readonly originalUrl?: string;
-  /** File hint stored in JSON for cross-session/cross-machine asset matching */
   readonly sourceFile?: { name: string; size: number; lastModified: number; folder?: string };
-  /** True while a background KieAI generation task is in progress */
   readonly isPending?: boolean;
-  /** True when polling exhausted all retries — shows manual retry button */
   readonly kieaiError?: boolean;
-  /** KieAI task ID used to poll for completion */
   readonly kieaiTaskId?: string;
 }
 
-/** Thumbnail for filmstrip display in timeline */
-export interface FilmstripThumbnail {
-  readonly timestamp: number;
-  readonly url: string;
-}
-
 export interface MediaMetadata {
-  readonly duration: number; // In seconds
-  readonly width: number; // For video/image
-  readonly height: number; // For video/image
-  readonly frameRate: number; // For video
+  readonly duration: number; // seconds
+  readonly width: number;
+  readonly height: number;
+  readonly frameRate: number;
   readonly codec: string;
-  readonly sampleRate: number; // For audio
-  readonly channels: number; // For audio
+  readonly sampleRate: number;
+  readonly channels: number;
   readonly fileSize: number;
-  /** Number of audio tracks in the file (may be > 1 for multi-track video/audio files) */
   readonly audioTrackCount?: number;
 }

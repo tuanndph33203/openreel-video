@@ -125,10 +125,7 @@ export class TranscriptionService {
     subtitles: Subtitle[],
     targetLanguage: string,
   ): Promise<Subtitle[]> {
-    if (this.config.translationMethod === "ai") {
-      if (!this.config.aiConfig?.apiKey) {
-        throw new Error("Không thể dịch bằng AI: Thiếu API Key trong phần cài đặt (Settings > API Keys).");
-      }
+    if (this.config.translationMethod === "ai" && this.config.aiConfig?.apiKey) {
       try {
         console.log("Using AI Translation...");
         return await this.translateSubtitlesWithAI(subtitles, targetLanguage);
@@ -146,6 +143,8 @@ export class TranscriptionService {
         
         throw new Error(customMessage);
       }
+    } else if (this.config.translationMethod === "ai") {
+      console.warn("[TranscriptionService] AI translation requested but API Key is missing. Falling back to Google Translate.");
     }
 
     const resultList: Subtitle[] = [];

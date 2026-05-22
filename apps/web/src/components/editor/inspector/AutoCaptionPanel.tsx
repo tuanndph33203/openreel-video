@@ -113,7 +113,9 @@ export const AutoCaptionPanel: React.FC = () => {
   const defaultProvider: TtsProvider =
     defaultTtsProvider === "elevenlabs" && hasElevenLabsKey
       ? "elevenlabs"
-      : "piper";
+      : defaultTtsProvider === "vieneu"
+        ? "vieneu"
+        : "piper";
 
   // States
   const [isTranscribing, setIsTranscribing] = useState(false);
@@ -137,7 +139,9 @@ export const AutoCaptionPanel: React.FC = () => {
   const [selectedVoice, setSelectedVoice] = useState<string>(
     defaultProvider === "elevenlabs" && favoriteVoices.length > 0
       ? favoriteVoices[0].voiceId
-      : "amy",
+      : defaultProvider === "vieneu"
+        ? "default"
+        : "amy",
   );
   const [ttsSpeed, setTtsSpeed] = useState<number>(1.0);
   const [isGeneratingTts, setIsGeneratingTts] = useState<boolean>(false);
@@ -150,7 +154,9 @@ export const AutoCaptionPanel: React.FC = () => {
     setSelectedVoice(
       defaultProvider === "elevenlabs" && favoriteVoices.length > 0
         ? favoriteVoices[0].voiceId
-        : "amy",
+        : defaultProvider === "vieneu"
+          ? "default"
+          : "amy",
     );
   }, [defaultProvider, favoriteVoices]);
 
@@ -172,6 +178,20 @@ export const AutoCaptionPanel: React.FC = () => {
     elevenLabsModel,
     defaultLlmProvider,
   });
+
+  // VieNeu: server Python cục bộ tại localhost:8000
+  const generateWithVieNeu = useCallback(async (text: string, voice: string, speed: number): Promise<Blob> => {
+    const response = await fetch("http://localhost:8000/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, voice, speed }),
+    });
+    if (!response.ok) {
+      const errData = await response.json().catch(() => null);
+      throw new Error(errData?.detail || `VieNeu API error: ${response.status}`);
+    }
+    return response.blob();
+  }, []);
 
   const selectedClip = useMemo(() => {
     const clipId = selectedClipIds[0];
@@ -211,6 +231,11 @@ export const AutoCaptionPanel: React.FC = () => {
         { voiceId: "ryan", name: "Ryan (Male)" },
       ];
     }
+    if (ttsProvider === "vieneu") {
+      return [
+        { voiceId: "default", name: "VieNeu Mặc định (Tiếng Việt)" },
+      ];
+    }
     // ElevenLabs voices
     const list = [...favoriteVoices];
     for (const v of allVoices) {
@@ -230,6 +255,10 @@ export const AutoCaptionPanel: React.FC = () => {
     if (ttsProvider === "piper") {
       if (selectedVoice !== "amy" && selectedVoice !== "ryan") {
         setSelectedVoice("amy");
+      }
+    } else if (ttsProvider === "vieneu") {
+      if (selectedVoice !== "default") {
+        setSelectedVoice("default");
       }
     } else {
       if (availableVoices.length > 0 && !availableVoices.some(v => v.voiceId === selectedVoice)) {
@@ -303,17 +332,22 @@ export const AutoCaptionPanel: React.FC = () => {
           message: `Synthesizing segment ${currentIdx + 1}/${targetSubtitlesToSpeak.length}...`,
         });
 
-        // Call the TTS synthesis API
-        const blob = ttsProvider === "elevenlabs"
-          ? await generateWithElevenLabs(subtitle.text.trim(), selectedVoice)
-          : await generateWithPiper(subtitle.text.trim(), selectedVoice, ttsSpeed);
+        // Call the TTS synthesis API — route to correct provider
+        let blob: Blob;
+        if (ttsProvider === "vieneu") {
+          blob = await generateWithVieNeu(subtitle.text.trim(), selectedVoice, ttsSpeed);
+        } else if (ttsProvider === "elevenlabs") {
+          blob = await generateWithElevenLabs(subtitle.text.trim(), selectedVoice);
+        } else {
+          blob = await generateWithPiper(subtitle.text.trim(), selectedVoice, ttsSpeed);
+        }
 
         const safeName = subtitle.text
           .trim()
           .slice(0, 32)
           .replace(/[\\/:*?"<>|]/g, "")
           .replace(/\s+/g, "_");
-        const voiceName = ttsProvider === "piper" ? selectedVoice : "ElevenLabs";
+        const voiceName = ttsProvider === "piper" ? selectedVoice : ttsProvider === "vieneu" ? "VieNeu" : "ElevenLabs";
         const fileName = `${voiceName}_${safeName || "text"}_${Date.now()}.wav`;
         const file = new File([blob], fileName, { type: "audio/wav" });
         
@@ -366,6 +400,7 @@ export const AutoCaptionPanel: React.FC = () => {
     ttsSpeed,
     generateWithElevenLabs,
     generateWithPiper,
+    generateWithVieNeu,
     getOrCreateTtsTrackId,
     importMedia,
     addClip,

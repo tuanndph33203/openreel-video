@@ -529,6 +529,7 @@ export class VideoEngine {
     targetHeight?: number,
   ): Promise<RenderedFrame> {
     this.ensureInitialized();
+    project = this.normalizeProject(project);
 
     const { timeline, mediaLibrary, settings } = project;
     const width = targetWidth ?? settings.width;
@@ -581,7 +582,7 @@ export class VideoEngine {
         const clips = this.getClipsAtTime(track, time);
         for (const clip of clips) {
           const clipInfo = this.createClipRenderInfo(clip, time);
-          const mediaItem = mediaLibrary.items.find(
+          const mediaItem = (mediaLibrary?.items || []).find(
             (m) => m.id === clipInfo.mediaId,
           );
           if (!mediaItem?.blob) continue;
@@ -1035,13 +1036,12 @@ export class VideoEngine {
 
   private getActiveTextClips(timeline: Timeline, time: number): TextClip[] {
     const allTextClips = titleEngine.getAllTextClips();
-    const textTracks = timeline.tracks.filter(
-      (t) => t.type === "text" && !t.hidden,
+    const hiddenTrackIds = new Set(
+      timeline.tracks.filter((t) => t.hidden).map((t) => t.id)
     );
-    const textTrackIds = new Set(textTracks.map((t) => t.id));
 
     return allTextClips.filter((clip) => {
-      if (!textTrackIds.has(clip.trackId)) return false;
+      if (hiddenTrackIds.has(clip.trackId)) return false;
       const clipEnd = clip.startTime + clip.duration;
       return time >= clip.startTime && time < clipEnd;
     });
@@ -1049,13 +1049,12 @@ export class VideoEngine {
 
   private getActiveShapeClips(timeline: Timeline, time: number): ShapeClip[] {
     const allShapeClips = graphicsEngine.getAllShapeClips();
-    const graphicsTracks = timeline.tracks.filter(
-      (t) => t.type === "graphics" && !t.hidden,
+    const hiddenTrackIds = new Set(
+      timeline.tracks.filter((t) => t.hidden).map((t) => t.id)
     );
-    const graphicsTrackIds = new Set(graphicsTracks.map((t) => t.id));
 
     return allShapeClips.filter((clip) => {
-      if (!graphicsTrackIds.has(clip.trackId)) return false;
+      if (hiddenTrackIds.has(clip.trackId)) return false;
       const clipEnd = clip.startTime + clip.duration;
       return time >= clip.startTime && time < clipEnd;
     });
@@ -1066,13 +1065,12 @@ export class VideoEngine {
     time: number,
   ): import("../graphics/types").SVGClip[] {
     const allSVGClips = graphicsEngine.getAllSVGClips();
-    const graphicsTracks = timeline.tracks.filter(
-      (t) => t.type === "graphics" && !t.hidden,
+    const hiddenTrackIds = new Set(
+      timeline.tracks.filter((t) => t.hidden).map((t) => t.id)
     );
-    const graphicsTrackIds = new Set(graphicsTracks.map((t) => t.id));
 
     return allSVGClips.filter((clip) => {
-      if (!graphicsTrackIds.has(clip.trackId)) return false;
+      if (hiddenTrackIds.has(clip.trackId)) return false;
       const clipEnd = clip.startTime + clip.duration;
       return time >= clip.startTime && time < clipEnd;
     });
@@ -1083,13 +1081,12 @@ export class VideoEngine {
     time: number,
   ): import("../graphics/types").StickerClip[] {
     const allStickerClips = graphicsEngine.getAllStickerClips();
-    const graphicsTracks = timeline.tracks.filter(
-      (t) => t.type === "graphics" && !t.hidden,
+    const hiddenTrackIds = new Set(
+      timeline.tracks.filter((t) => t.hidden).map((t) => t.id)
     );
-    const graphicsTrackIds = new Set(graphicsTracks.map((t) => t.id));
 
     return allStickerClips.filter((clip) => {
-      if (!graphicsTrackIds.has(clip.trackId)) return false;
+      if (hiddenTrackIds.has(clip.trackId)) return false;
       const clipEnd = clip.startTime + clip.duration;
       return time >= clip.startTime && time < clipEnd;
     });
@@ -1126,6 +1123,7 @@ export class VideoEngine {
       clipLocalTime,
       width,
       height,
+      ctx.canvas,
     );
 
     if (result.canvas instanceof OffscreenCanvas) {
@@ -2594,6 +2592,40 @@ export class VideoEngine {
     this.preloadQueue = [];
     this.initialized = false;
     this.mediabunny = null;
+  }
+
+  private normalizeProject(project: Project): Project {
+    const mediaLibrary = project.mediaLibrary ? {
+      ...project.mediaLibrary,
+      items: project.mediaLibrary.items || [],
+    } : { items: [] };
+
+    const timeline = project.timeline ? {
+      ...project.timeline,
+      tracks: project.timeline.tracks || [],
+      subtitles: project.timeline.subtitles || [],
+      duration: project.timeline.duration || 0,
+      markers: project.timeline.markers || [],
+    } : { tracks: [], subtitles: [], duration: 0, markers: [] };
+
+    const safeTracks = timeline.tracks.map(track => {
+      if (!track) return track;
+      return {
+        ...track,
+        clips: track.clips || [],
+        transitions: track.transitions || [],
+      };
+    });
+
+    return {
+      ...project,
+      settings: project.settings || { width: 1920, height: 1080, frameRate: 30, sampleRate: 44100, channels: 2 },
+      mediaLibrary,
+      timeline: {
+        ...timeline,
+        tracks: safeTracks,
+      },
+    };
   }
 }
 let videoEngineInstance: VideoEngine | null = null;

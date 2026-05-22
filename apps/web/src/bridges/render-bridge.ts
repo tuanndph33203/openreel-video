@@ -321,8 +321,11 @@ export class RenderBridge {
     const project = useProjectStore.getState().project;
 
     // Find the clip in the timeline
-    for (const track of project.timeline.tracks) {
-      const clip = track.clips.find((c) => c.id === clipId);
+    const tracks = project.timeline?.tracks || [];
+    for (const track of tracks) {
+      if (!track) continue;
+      const clips = track.clips || [];
+      const clip = clips.find((c) => c.id === clipId);
       if (clip && clip.effects && clip.effects.length > 0) {
         return this.applyEffects(frame, clip.effects);
       }
@@ -375,10 +378,12 @@ export class RenderBridge {
       return null;
     }
 
-    for (const transition of track.transitions) {
+    const transitions = track.transitions || [];
+    for (const transition of transitions) {
       // Find the clips involved in this transition
-      const clipA = track.clips.find((c) => c.id === transition.clipAId);
-      const clipB = track.clips.find((c) => c.id === transition.clipBId);
+      const clips = track.clips || [];
+      const clipA = clips.find((c) => c.id === transition.clipAId);
+      const clipB = clips.find((c) => c.id === transition.clipBId);
 
       if (!clipA || !clipB) {
         continue;

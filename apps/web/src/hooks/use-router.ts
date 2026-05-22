@@ -6,7 +6,8 @@ export type AppRoute =
   | "new"
   | "templates"
   | "recent"
-  | "share";
+  | "share"
+  | "automation-queues";
 
 export interface RouteParams {
   dimensions?: string;
@@ -44,6 +45,7 @@ function parseHash(hash: string): RouterState {
     "templates",
     "recent",
     "share",
+    "automation-queues",
   ];
 
   if (route === "share" && pathParts[1]) {

@@ -8,7 +8,7 @@ import {
   Square,
   FolderOpen,
 } from "lucide-react";
-import { Button, Switch, Label, Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, Input } from "@openreel/ui";
+import { Button, Label, Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, Input } from "@openreel/ui";
 import { useProjectStore } from "../../stores/project-store";
 import { useUIStore } from "../../stores/ui-store";
 import { autoSaveManager } from "../../services/auto-save";
@@ -135,9 +135,6 @@ interface WelcomeScreenProps {
 }
 
 export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ initialTab }) => {
-  const setSkipWelcomeScreen = useUIStore(
-    (state) => state.setSkipWelcomeScreen,
-  );
   const skipWelcomeScreen = useUIStore((state) => state.skipWelcomeScreen);
   const createNewProject = useProjectStore((state) => state.createNewProject);
   const { navigate } = useRouter();
@@ -428,26 +425,18 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ initialTab }) => {
               <FolderOpen size={16} />
               Open editor
             </Button>
+            <Button
+              variant="outline"
+              onClick={() => navigate("automation-queues")}
+              className="rounded-xl border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/10 hover:border-indigo-500/50"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+              Automation Queues
+            </Button>
           </div>
         </div>
 
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <Switch
-              id="skip-welcome"
-              checked={skipWelcomeScreen}
-              onCheckedChange={setSkipWelcomeScreen}
-            />
-            <Label
-              htmlFor="skip-welcome"
-              className="text-xs text-text-muted cursor-pointer"
-            >
-              Skip on startup
-            </Label>
-          </div>
-
-          <span className="text-text-muted/30">·</span>
-
           <p className="text-xs text-text-muted/60">
             Press{" "}
             <kbd className="px-1.5 py-0.5 bg-background-tertiary border border-border rounded text-text-muted font-mono text-[10px]">

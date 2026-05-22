@@ -202,6 +202,7 @@ export class AudioEngine {
     duration: number,
   ): Promise<RenderedAudio> {
     this.ensureInitialized();
+    project = this.normalizeProject(project);
 
     const { timeline, mediaLibrary, settings } = project;
     const sampleRate = settings.sampleRate || this.config.sampleRate;
@@ -223,7 +224,7 @@ export class AudioEngine {
       if (this.isTrackMuted(trackInfo, hasSoloTracks)) continue;
 
       for (const clipInfo of trackInfo.clips) {
-        const mediaItem = mediaLibrary.items.find(
+        const mediaItem = (mediaLibrary?.items || []).find(
           (m) => m.id === clipInfo.mediaId,
         );
         if (!mediaItem) continue;
@@ -963,6 +964,40 @@ export class AudioEngine {
 
     this.masterGain = null;
     this.initialized = false;
+  }
+
+  private normalizeProject(project: Project): Project {
+    const mediaLibrary = project.mediaLibrary ? {
+      ...project.mediaLibrary,
+      items: project.mediaLibrary.items || [],
+    } : { items: [] };
+
+    const timeline = project.timeline ? {
+      ...project.timeline,
+      tracks: project.timeline.tracks || [],
+      subtitles: project.timeline.subtitles || [],
+      duration: project.timeline.duration || 0,
+      markers: project.timeline.markers || [],
+    } : { tracks: [], subtitles: [], duration: 0, markers: [] };
+
+    const safeTracks = timeline.tracks.map(track => {
+      if (!track) return track;
+      return {
+        ...track,
+        clips: track.clips || [],
+        transitions: track.transitions || [],
+      };
+    });
+
+    return {
+      ...project,
+      settings: project.settings || { width: 1920, height: 1080, frameRate: 30, sampleRate: 44100, channels: 2 },
+      mediaLibrary,
+      timeline: {
+        ...timeline,
+        tracks: safeTracks,
+      },
+    };
   }
 }
 

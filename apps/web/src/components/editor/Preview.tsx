@@ -540,7 +540,20 @@ export const Preview: React.FC = () => {
     x: number;
     y: number;
     transform: { x: number; y: number; scaleX: number; scaleY: number };
+    textClipTransforms?: Record<
+      string,
+      { x: number; y: number; scaleX: number; scaleY: number }
+    >;
   } | null>(null);
+  const pendingTextTransformsRef = useRef<
+    Array<{
+      clipId: string;
+      transform: {
+        position?: { x: number; y: number };
+        scale?: { x: number; y: number };
+      };
+    }>
+  >([]);
   const pendingTransformRef = useRef<{
     clipId: string;
     transform: {
@@ -4615,6 +4628,19 @@ export const Preview: React.FC = () => {
     return allTextClips.find((clip) => clip.id === selectedTextClipId) || null;
   }, [selectedTextClipId, allTextClips]);
 
+  const selectedTextClipIds = useMemo(
+    () =>
+      selectedItems
+        .filter((item) => item.type === "text-clip")
+        .map((item) => item.id),
+    [selectedItems],
+  );
+
+  const selectedTextClips = useMemo(() => {
+    const selectedIds = new Set(selectedTextClipIds);
+    return allTextClips.filter((clip) => selectedIds.has(clip.id));
+  }, [allTextClips, selectedTextClipIds]);
+
   const activeTextClip = selectedTextClip;
 
   const clipBounds = useMemo(() => {
@@ -5155,6 +5181,19 @@ export const Preview: React.FC = () => {
       if (!activeTextClip) return;
 
       const { transform } = activeTextClip;
+      const textClipTransforms = Object.fromEntries(
+        (selectedTextClips.length > 0 ? selectedTextClips : [activeTextClip]).map(
+          (clip) => [
+            clip.id,
+            {
+              x: clip.transform.position.x,
+              y: clip.transform.position.y,
+              scaleX: clip.transform.scale.x,
+              scaleY: clip.transform.scale.y,
+            },
+          ],
+        ),
+      );
 
       isInteractingRef.current = true;
       setInteractionMode("move");
@@ -5169,9 +5208,10 @@ export const Preview: React.FC = () => {
           scaleX: transform.scale.x,
           scaleY: transform.scale.y,
         },
+        textClipTransforms,
       };
     },
-    [activeTextClip],
+    [activeTextClip, selectedTextClips],
   );
 
   const handleTextHandleMouseDown = useCallback(
@@ -5302,13 +5342,31 @@ export const Preview: React.FC = () => {
         } = {};
 
         if (interactionMode === "move") {
+          const deltaPosition = {
+            x: deltaX / displayScale / settings.width,
+            y: deltaY / displayScale / settings.height,
+          };
           const newX =
-            interactionStartRef.current.transform.x +
-            deltaX / displayScale / settings.width;
+            interactionStartRef.current.transform.x + deltaPosition.x;
           const newY =
-            interactionStartRef.current.transform.y +
-            deltaY / displayScale / settings.height;
+            interactionStartRef.current.transform.y + deltaPosition.y;
           newTransform = { position: { x: newX, y: newY } };
+
+          const startTextTransforms =
+            interactionStartRef.current.textClipTransforms;
+          pendingTextTransformsRef.current = startTextTransforms
+            ? Object.entries(startTextTransforms).map(([clipId, start]) => ({
+                clipId,
+                transform: {
+                  position: {
+                    x: start.x + deltaPosition.x,
+                    y: start.y + deltaPosition.y,
+                  },
+                },
+              }))
+            : interactionTargetIdRef.current
+              ? [{ clipId: interactionTargetIdRef.current, transform: newTransform }]
+              : [];
         } else if (interactionMode === "resize" && activeHandle) {
           const startTransform = interactionStartRef.current.transform;
           let newScaleX = startTransform.scaleX;
@@ -5344,6 +5402,9 @@ export const Preview: React.FC = () => {
             position: { x: startTransform.x, y: startTransform.y },
             scale: { x: newScaleX, y: newScaleY },
           };
+          pendingTextTransformsRef.current = interactionTargetIdRef.current
+            ? [{ clipId: interactionTargetIdRef.current, transform: newTransform }]
+            : [];
         }
 
         if (!rafIdRef.current) {
@@ -5351,10 +5412,12 @@ export const Preview: React.FC = () => {
             const now = performance.now();
             if (
               now - lastStoreUpdateRef.current >= STORE_UPDATE_THROTTLE_MS &&
-              interactionTargetIdRef.current
+              pendingTextTransformsRef.current.length > 0
             ) {
               lastStoreUpdateRef.current = now;
-              updateTextTransform(interactionTargetIdRef.current, newTransform);
+              for (const pending of pendingTextTransformsRef.current) {
+                updateTextTransform(pending.clipId, pending.transform);
+              }
             }
             rafIdRef.current = null;
           });
@@ -5663,6 +5726,12 @@ export const Preview: React.FC = () => {
   );
 
   const handleMouseUp = useCallback(() => {
+    if (pendingTextTransformsRef.current.length > 0) {
+      for (const pending of pendingTextTransformsRef.current) {
+        updateTextTransform(pending.clipId, pending.transform);
+      }
+      pendingTextTransformsRef.current = [];
+    }
     if (pendingTransformRef.current) {
       updateClipTransform(
         pendingTransformRef.current.clipId,
@@ -5695,6 +5764,7 @@ export const Preview: React.FC = () => {
       renderFrameDirectly(playheadPosition);
     }
   }, [
+    updateTextTransform,
     updateClipTransform,
     updateShapeTransform,
     renderFrameDirectly,
@@ -5728,6 +5798,12 @@ export const Preview: React.FC = () => {
           );
           pendingTransformRef.current = null;
         }
+        if (pendingTextTransformsRef.current.length > 0) {
+          for (const pending of pendingTextTransformsRef.current) {
+            updateTextTransform(pending.clipId, pending.transform);
+          }
+          pendingTextTransformsRef.current = [];
+        }
         if (pendingShapeTransformRef.current) {
           updateShapeTransform(
             pendingShapeTransformRef.current.clipId,
@@ -5759,6 +5835,7 @@ export const Preview: React.FC = () => {
     interactionMode,
     renderFrameDirectly,
     playheadPosition,
+    updateTextTransform,
     updateClipTransform,
     updateShapeTransform,
   ]);

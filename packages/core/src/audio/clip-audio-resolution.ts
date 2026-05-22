@@ -33,8 +33,11 @@ export const findClipTrack = (
   timeline: TimelineWithTracks,
   clipId: string,
 ): { clip: Clip; track: Track } | null => {
-  for (const track of timeline.tracks) {
-    const clip = track.clips.find((candidate) => candidate.id === clipId);
+  const tracks = timeline?.tracks || [];
+  for (const track of tracks) {
+    if (!track) continue;
+    const clips = track.clips || [];
+    const clip = clips.find((candidate) => candidate && candidate.id === clipId);
     if (clip) {
       return { clip, track };
     }
@@ -47,16 +50,18 @@ export const getLinkedAudioClips = (
   clip: Clip,
   timeline: TimelineWithTracks,
 ): Array<{ clip: Clip; track: Track }> => {
-  const currentTrack = timeline.tracks.find((track) => track.id === clip.trackId);
+  const tracks = timeline?.tracks || [];
+  const currentTrack = tracks.find((track) => track && track.id === clip.trackId);
   const linkedClips: Array<{ clip: Clip; track: Track }> = [];
 
-  for (const track of timeline.tracks) {
-    if (track.id === clip.trackId) {
+  for (const track of tracks) {
+    if (!track || track.id === clip.trackId) {
       continue;
     }
 
-    for (const candidate of track.clips) {
-      if (isAlignedLinkedClip(clip, candidate)) {
+    const clips = track.clips || [];
+    for (const candidate of clips) {
+      if (candidate && isAlignedLinkedClip(clip, candidate)) {
         linkedClips.push({ clip: candidate, track });
       }
     }

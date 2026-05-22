@@ -373,16 +373,16 @@ export class ClipManager {
   }
 
   findClip(timeline: Timeline, clipId: string): Clip | undefined {
-    for (const track of timeline.tracks) {
-      const clip = track.clips.find((c) => c.id === clipId);
+    for (const track of (timeline.tracks || [])) {
+      const clip = (track.clips || []).find((c) => c.id === clipId);
       if (clip) return clip;
     }
     return undefined;
   }
 
   getTrackClips(timeline: Timeline, trackId: string): Clip[] {
-    const track = timeline.tracks.find((t) => t.id === trackId);
-    return track ? [...track.clips] : [];
+    const track = (timeline.tracks || []).find((t) => t.id === trackId);
+    return track ? [...(track.clips || [])] : [];
   }
 
   getClipsSortedByTime(timeline: Timeline, trackId: string): Clip[] {

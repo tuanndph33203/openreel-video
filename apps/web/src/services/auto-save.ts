@@ -57,6 +57,7 @@ class AutoSaveManager {
   }
 
   async initialize(): Promise<void> {
+    if (this.db) return;
     try {
       this.db = await this.openDatabase();
     } catch (error) {
@@ -152,7 +153,9 @@ class AutoSaveManager {
 
     // Skip auto-saving completely empty/pristine projects to avoid cluttering the recent projects list.
     // A project is considered empty if it has no media items, no tracks, and no subtitles.
+    const hasWatchFolder = !!project.settings?.automationConfig?.watchFolderName;
     const isEmpty =
+      !hasWatchFolder &&
       (!project.mediaLibrary || project.mediaLibrary.items.length === 0) &&
       (!project.timeline || (
         project.timeline.tracks.length === 0 &&
@@ -432,6 +435,9 @@ class AutoSaveManager {
   }
 
   async forceSave(project: Project): Promise<void> {
+    if (!this.db) {
+      await this.initialize();
+    }
     this.pendingProject = project;
     this.isDirty = true;
     await this.saveIfDirty();

@@ -195,7 +195,7 @@ export function getClipVolumeAtTime(clip: Clip, timeInClip: number): number {
  */
 export function getClipPanAtTime(clip: Clip, timeInClip: number): number {
   // Get base pan from effects
-  const panEffect = clip.effects.find((e) => e.type === "pan");
+  const panEffect = (clip.effects || []).find((e) => e.type === "pan");
   const basePan =
     panEffect && typeof panEffect.params.value === "number"
       ? panEffect.params.value

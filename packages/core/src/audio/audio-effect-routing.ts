@@ -44,12 +44,18 @@ export const isSerializedNoiseProfile = (
   );
 };
 
-export const getPreviewAudioEffects = (effects: readonly Effect[]): Effect[] =>
-  effects.filter((effect) => effect.metadata?.previewBypass !== true);
+export const getPreviewAudioEffects = (effects?: readonly Effect[]): Effect[] => {
+  if (!effects) return [];
+  return effects.filter((effect) => effect && effect.metadata?.previewBypass !== true);
+};
 
-export const getPanFromAudioEffects = (effects: readonly Effect[]): number => {
+export const getPanFromAudioEffects = (effects?: readonly Effect[]): number => {
+  if (!effects) {
+    return 0;
+  }
   const panEffect = effects.find(
     (effect) =>
+      effect &&
       effect.type === "pan" &&
       typeof (effect.params as AudioEffectParams["pan"]).value === "number",
   );
@@ -65,7 +71,7 @@ export const getPanFromAudioEffects = (effects: readonly Effect[]): number => {
 };
 
 export const splitProfileAwareNoiseReductionEffects = (
-  effects: readonly Effect[],
+  effects?: readonly Effect[],
 ): {
   profileAwareNoiseEffects: Effect[];
   realtimeEffects: Effect[];
@@ -73,7 +79,12 @@ export const splitProfileAwareNoiseReductionEffects = (
   const profileAwareNoiseEffects: Effect[] = [];
   const realtimeEffects: Effect[] = [];
 
+  if (!effects) {
+    return { profileAwareNoiseEffects, realtimeEffects };
+  }
+
   for (const effect of effects) {
+    if (!effect) continue;
     if (
       effect.type === "noiseReduction" &&
       isSerializedNoiseProfile(

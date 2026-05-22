@@ -120,7 +120,7 @@ export class InverseActionGenerator {
         });
 
       case "media/delete": {
-        const deletedMedia = projectBefore.mediaLibrary.items.find(
+        const deletedMedia = (projectBefore.mediaLibrary?.items || []).find(
           (item) => item.id === action.params.mediaId,
         );
         if (!deletedMedia) return null;
@@ -130,7 +130,7 @@ export class InverseActionGenerator {
       }
 
       case "media/rename": {
-        const media = projectBefore.mediaLibrary.items.find(
+        const media = (projectBefore.mediaLibrary?.items || []).find(
           (item) => item.id === action.params.mediaId,
         );
         if (!media) return null;
@@ -506,7 +506,7 @@ export class InverseActionGenerator {
     switch (action.type) {
       case "subtitle/import":
         return this.createInverseAction(action, "subtitle/restoreAll", {
-          subtitles: timeline.subtitles.map((s) => ({ ...s })),
+          subtitles: (timeline.subtitles || []).map((s) => ({ ...s })),
         });
 
       case "subtitle/add":
@@ -515,7 +515,7 @@ export class InverseActionGenerator {
         });
 
       case "subtitle/remove": {
-        const subtitle = timeline.subtitles.find(
+        const subtitle = (timeline.subtitles || []).find(
           (s) => s.id === action.params.subtitleId,
         );
         if (!subtitle) return null;
@@ -526,7 +526,7 @@ export class InverseActionGenerator {
       }
 
       case "subtitle/update": {
-        const subtitle = timeline.subtitles.find(
+        const subtitle = (timeline.subtitles || []).find(
           (s) => s.id === action.params.subtitleId,
         );
         if (!subtitle) return null;
@@ -540,7 +540,7 @@ export class InverseActionGenerator {
       }
 
       case "subtitle/setStyle": {
-        const firstSubtitle = timeline.subtitles[0];
+        const firstSubtitle = (timeline.subtitles || [])[0];
         return this.createInverseAction(action, "subtitle/setStyle", {
           style: firstSubtitle?.style ?? null,
         });
@@ -549,8 +549,11 @@ export class InverseActionGenerator {
   }
 
   private findClip(timeline: { tracks: Track[] }, clipId: string): Clip | null {
-    for (const track of timeline.tracks) {
-      const clip = track.clips.find((c) => c.id === clipId);
+    const tracks = timeline?.tracks || [];
+    for (const track of tracks) {
+      if (!track) continue;
+      const clips = track.clips || [];
+      const clip = clips.find((c) => c.id === clipId);
       if (clip) return clip;
     }
     return null;
@@ -560,8 +563,11 @@ export class InverseActionGenerator {
     timeline: { tracks: Track[] },
     transitionId: string,
   ): Transition | null {
-    for (const track of timeline.tracks) {
-      const transition = track.transitions?.find((t) => t.id === transitionId);
+    const tracks = timeline?.tracks || [];
+    for (const track of tracks) {
+      if (!track) continue;
+      const transitions = track.transitions || [];
+      const transition = transitions.find((t) => t.id === transitionId);
       if (transition) return transition;
     }
     return null;
@@ -587,8 +593,8 @@ export class InverseActionGenerator {
       id: track.id,
       type: track.type,
       name: track.name,
-      clips: track.clips.map((c) => this.cloneClip(c)),
-      transitions: track.transitions?.map((t) => ({ ...t })) ?? [],
+      clips: (track.clips || []).map((c) => this.cloneClip(c)),
+      transitions: (track.transitions || []).map((t) => ({ ...t })),
       locked: track.locked,
       hidden: track.hidden,
       muted: track.muted,
@@ -605,7 +611,7 @@ export class InverseActionGenerator {
       duration: clip.duration,
       inPoint: clip.inPoint,
       outPoint: clip.outPoint,
-      effects: clip.effects.map((e) => ({ ...e, params: { ...e.params } })),
+      effects: (clip.effects || []).map((e) => ({ ...e, params: { ...e.params } })),
       transform: { ...clip.transform },
       volume: clip.volume,
       fade: clip.fade ? { ...clip.fade } : undefined,
@@ -615,7 +621,7 @@ export class InverseActionGenerator {
             pan: clip.automation.pan?.map((p) => ({ ...p })),
           }
         : undefined,
-      keyframes: clip.keyframes.map((kf) => ({ ...kf })),
+      keyframes: (clip.keyframes || []).map((kf) => ({ ...kf })),
     };
   }
 }
