@@ -314,8 +314,18 @@ export class AutoProcessor {
       (videoTrack.clips as any[]).push(newClip);
       longestClip = newClip;
     }
+    const extractedDuration = newMediaItem.metadata.duration;
+    const duration = (extractedDuration && Number.isFinite(extractedDuration)) ? extractedDuration : 10;
+
     // Replace the mediaId on the selected clip
     (longestClip as any).mediaId = newMediaItem.id;
+    (longestClip as any).duration = duration;
+    (longestClip as any).outPoint = duration;
+
+    // Clear any existing blur effects to avoid enqueued videos having unwanted blur
+    if (longestClip.effects) {
+      (longestClip as any).effects = longestClip.effects.filter((e: any) => e.type !== 'blur');
+    }
 
     // Cleanup old automation data
     // Remove auto-generated subtitles

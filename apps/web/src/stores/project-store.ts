@@ -301,6 +301,7 @@ export interface ProjectState {
   exportSRT: () => Promise<string>;
   applySubtitleStylePreset: (presetName: string) => Promise<boolean>;
   getSubtitleStylePresets: () => Promise<string[]>;
+  clearCaptions: () => void;
 
   // Marker actions
   addMarker: (time: number, label?: string, color?: string) => void;
@@ -2227,6 +2228,9 @@ export const useProjectStore = create<ProjectState>()(
 
       removeTrack: async (trackId: string) => {
         const { project, actionExecutor } = get();
+        const trackToRemove = project.timeline.tracks.find((t) => t.id === trackId);
+        const isCaptionsTrack = trackToRemove && (trackToRemove.name === "Captions" || trackToRemove.name === "Translated Captions");
+
         const action: Action = {
           type: "track/remove",
           id: uuidv4(),
@@ -2235,12 +2239,35 @@ export const useProjectStore = create<ProjectState>()(
         };
         const result = await actionExecutor.execute(action, project);
         if (result.success) {
-          set({
-            project: {
-              ...project,
-              timeline: { ...project.timeline },
-              modifiedAt: Date.now(),
-            },
+          // Delete text clips of the removed track from titleEngine
+          if (trackToRemove && trackToRemove.type === "text") {
+            const titleEngine = useEngineStore.getState().getTitleEngine();
+            if (titleEngine) {
+              const clips = titleEngine.getAllTextClips().filter((c) => c.trackId === trackId);
+              clips.forEach((c) => titleEngine.deleteTextClip(c.id));
+            }
+          }
+
+          set((state) => {
+            let nextSubtitles = state.project.timeline.subtitles;
+            if (isCaptionsTrack) {
+              const trackName = trackToRemove.name;
+              if (trackName === "Captions") {
+                nextSubtitles = nextSubtitles.filter((s) => s.id.endsWith("-translated"));
+              } else if (trackName === "Translated Captions") {
+                nextSubtitles = nextSubtitles.filter((s) => !s.id.endsWith("-translated"));
+              }
+            }
+            return {
+              project: {
+                ...state.project,
+                timeline: {
+                  ...state.project.timeline,
+                  subtitles: nextSubtitles,
+                },
+                modifiedAt: Date.now(),
+              },
+            };
           });
         }
         return result;
@@ -4981,6 +5008,40 @@ export const useProjectStore = create<ProjectState>()(
           .getState()
           .getSubtitleEngine();
         return subtitleEngine.getStylePresets();
+      },
+
+      clearCaptions: () => {
+        const { project } = get();
+        const titleEngine = useEngineStore.getState().getTitleEngine();
+        
+        // Find tracks named "Captions" or "Translated Captions"
+        const captionTracks = project.timeline.tracks.filter(
+          (t) => t.type === "text" && (t.name === "Captions" || t.name === "Translated Captions")
+        );
+        
+        if (titleEngine) {
+          for (const track of captionTracks) {
+            const clips = titleEngine.getAllTextClips().filter((c) => c.trackId === track.id);
+            for (const clip of clips) {
+              titleEngine.deleteTextClip(clip.id);
+            }
+          }
+        }
+        
+        const captionTrackIds = new Set(captionTracks.map((t) => t.id));
+        const nextTracks = project.timeline.tracks.filter((t) => !captionTrackIds.has(t.id));
+        
+        set({
+          project: {
+            ...project,
+            timeline: {
+              ...project.timeline,
+              tracks: nextTracks,
+              subtitles: [],
+            },
+            modifiedAt: Date.now(),
+          },
+        });
       },
 
       // Marker actions

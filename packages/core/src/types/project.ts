@@ -10,6 +10,7 @@ export interface AutomationConfig {
   videoContext?: string;
   glossaryText?: string;
   animationStyle?: string;
+  aiTemperature?: number;
   
   tts: boolean;
   ttsProvider?: "piper" | "elevenlabs" | "vieneu";

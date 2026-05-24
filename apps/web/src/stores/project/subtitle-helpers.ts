@@ -66,10 +66,16 @@ export function parseSRT(content: string): {
 } {
   const subtitles: Subtitle[] = [];
   const errors: string[] = [];
-  const blocks = content.trim().split(/\n\n+/);
+
+  // Normalize all line endings to \n (handles Windows \r\n, old Mac \r, Unix \n)
+  const normalized = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+
+  // Split on one or more blank lines
+  const blocks = normalized.split(/\n\s*\n/).map((b) => b.trim()).filter((b) => b.length > 0);
 
   for (let i = 0; i < blocks.length; i++) {
-    const lines = blocks[i].split("\n").filter((line) => line.trim());
+    // Trim each line individually (removes leftover \r or whitespace)
+    const lines = blocks[i].split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
     if (lines.length < 3) {
       errors.push(
         `Block ${i + 1}: Invalid format (needs index, timecode, and text)`,
@@ -97,7 +103,8 @@ export function parseSRT(content: string): {
       parseInt(timecodeMatch[7]) +
       parseInt(timecodeMatch[8]) / 1000;
 
-    const text = lines.slice(2).join("\n");
+    // Join multi-line subtitle text (some SRT files split long text into 2 lines)
+    const text = lines.slice(2).join(" ");
 
     subtitles.push({
       id: `subtitle-${Date.now()}-${i}`,

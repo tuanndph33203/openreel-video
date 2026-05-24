@@ -5,8 +5,11 @@ import {
   AlertCircle,
   Loader2,
   Download,
+  Upload,
+  CheckCircle2,
   Sparkles,
   Volume2,
+  Trash2,
 } from "lucide-react";
 import {
   initializeTranscriptionService,
@@ -16,6 +19,7 @@ import {
   getAnimationStyleDisplayName,
 } from "@openreel/core";
 import { useProjectStore } from "../../../stores/project-store";
+import { parseSRT } from "../../../stores/project/subtitle-helpers";
 import { useUIStore } from "../../../stores/ui-store";
 import { OPENREEL_TRANSCRIBE_URL } from "../../../config/api-endpoints";
 import {
@@ -65,6 +69,7 @@ const TONE_OPTIONS = [
 
 export const AutoCaptionPanel: React.FC = () => {
   const addSubtitle = useProjectStore((state) => state.addSubtitle);
+  const clearCaptions = useProjectStore((state) => state.clearCaptions);
   const getClip = useProjectStore((state) => state.getClip);
   const getMediaItem = useProjectStore((state) => state.getMediaItem);
   const exportSRT = useProjectStore((state) => state.exportSRT);
@@ -122,6 +127,8 @@ export const AutoCaptionPanel: React.FC = () => {
 
   // States
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [isImportingSRT, setIsImportingSRT] = useState(false);
+  const [importSRTResult, setImportSRTResult] = useState<{ count: number } | null>(null);
   const [progress, setProgress] =
     useState<WhisperTranscriptionProgress | null>(null);
   const [sourceLanguage, setSourceLanguage] = useState("none");
@@ -137,6 +144,7 @@ export const AutoCaptionPanel: React.FC = () => {
   const [aiTone, setAiTone] = useState<string>("natural and fluent");
   const [videoContext, setVideoContext] = useState<string>("");
   const [glossaryText, setGlossaryText] = useState<string>("");
+  const [aiTemperature, setAiTemperature] = useState<number>(0.5);
 
   // TTS configurations
   const [ttsProvider, setTtsProvider] = useState<TtsProvider>(defaultProvider);
@@ -177,6 +185,7 @@ export const AutoCaptionPanel: React.FC = () => {
         if (config.aiTone !== undefined) setAiTone(config.aiTone);
         if (config.videoContext !== undefined) setVideoContext(config.videoContext);
         if (config.glossaryText !== undefined) setGlossaryText(config.glossaryText);
+        if (config.aiTemperature !== undefined) setAiTemperature(config.aiTemperature);
         if (config.ttsProvider !== undefined) setTtsProvider(config.ttsProvider);
         if (config.ttsVoiceId !== undefined) setSelectedVoice(config.ttsVoiceId);
         if (config.ttsSpeed !== undefined) setTtsSpeed(config.ttsSpeed);
@@ -343,6 +352,36 @@ export const AutoCaptionPanel: React.FC = () => {
     return newTrack.id;
   }, [addTrack]);
 
+  const handleImportSRT = useCallback(async (file: File) => {
+    if (isImportingSRT) return;
+    setIsImportingSRT(true);
+    setImportSRTResult(null);
+    setError(null);
+    try {
+      clearCaptions();
+      const text = await file.text();
+      const { subtitles: parsed, errors } = parseSRT(text);
+      if (parsed.length === 0) {
+        throw new Error(errors.length > 0 ? errors[0] : "No valid subtitles found in the SRT file.");
+      }
+      for (const subtitle of parsed) {
+        await addSubtitle({
+          ...subtitle,
+          animationStyle,
+        });
+      }
+      setImportSRTResult({ count: parsed.length });
+      toast.success(`Imported ${parsed.length} subtitles from SRT file!`);
+      if (errors.length > 0) {
+        console.warn("[ImportSRT] Errors:", errors);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to import SRT file.");
+    } finally {
+      setIsImportingSRT(false);
+    }
+  }, [isImportingSRT, addSubtitle, animationStyle]);
+
   const handleGenerateVoiceNarration = useCallback(async () => {
     if (targetSubtitlesToSpeak.length === 0 || isGeneratingTts) return;
 
@@ -456,6 +495,7 @@ export const AutoCaptionPanel: React.FC = () => {
     });
 
     try {
+      clearCaptions();
       let aiConfig = undefined;
       if (targetLanguage !== "none" && translationMethod === "ai") {
         if (!isSessionUnlocked()) {
@@ -715,6 +755,29 @@ export const AutoCaptionPanel: React.FC = () => {
                     <span className="text-[10px] text-text-secondary block">Từ điển / Glossary (Tùy chọn)</span>
                     <span className="text-[8px] text-text-muted">Định dạng: Key:Val, Key2:Val2</span>
                   </div>
+
+                {/* AI Temperature Slider (Dynamic) */}
+                <div className="space-y-1.5 mt-2">
+                  <div className="flex justify-between items-center text-[10px]">
+                    <span className="text-text-secondary">AI Temperature (Độ sáng tạo)</span>
+                    <span className="text-primary font-medium">{aiTemperature.toFixed(2)}</span>
+                  </div>
+                  <Slider
+                    min={0.3}
+                    max={1.0}
+                    step={0.05}
+                    value={[aiTemperature]}
+                    onValueChange={(value) => {
+                      const val = value[0];
+                      setAiTemperature(val);
+                      saveAutomationConfig({ aiTemperature: val });
+                    }}
+                    disabled={isTranscribing}
+                  />
+                  <span className="text-[8px] text-text-muted block leading-tight">
+                    Mức thấp (0.3) sẽ dịch ổn định, bám sát nghĩa gốc. Mức cao (0.5 - 1.0) cho phép AI viết bay bổng, tự nhiên hơn. Bị giới hạn tối thiểu 0.3.
+                  </span>
+                </div>
                   <input
                     type="text"
                     value={glossaryText}
@@ -825,14 +888,71 @@ export const AutoCaptionPanel: React.FC = () => {
         </button>
 
         {hasSubtitles && (
-          <button
-            onClick={handleExportSRT}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-background-secondary border border-border text-text-primary rounded-lg hover:bg-background-tertiary transition-colors"
-          >
-            <Download size={14} />
-            <span className="text-[11px] font-medium">Export SRT</span>
-          </button>
+          <div className="flex gap-2 w-full">
+            <button
+              onClick={handleExportSRT}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-background-secondary border border-border text-text-primary rounded-lg hover:bg-background-tertiary transition-colors"
+            >
+              <Download size={14} />
+              <span className="text-[11px] font-medium">Export SRT</span>
+            </button>
+            <button
+              onClick={() => {
+                clearCaptions();
+                toast.success("Cleared all captions and subtitles successfully!");
+              }}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg hover:bg-red-500/20 transition-colors"
+            >
+              <Trash2 size={14} />
+              <span className="text-[11px] font-medium">Clear All</span>
+            </button>
+          </div>
         )}
+
+        {/* Import SRT */}
+        <div>
+          <label
+            htmlFor="import-srt-input"
+            className={[
+              "w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg border transition-colors",
+              isImportingSRT
+                ? "bg-background-secondary/50 border-border/30 text-text-muted cursor-not-allowed"
+                : "bg-background-secondary border-border text-text-primary hover:bg-background-tertiary cursor-pointer"
+            ].join(" ")}
+          >
+            {isImportingSRT ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : importSRTResult ? (
+              <CheckCircle2 size={14} className="text-green-400" />
+            ) : (
+              <Upload size={14} />
+            )}
+            <span className="text-[11px] font-medium">
+              {isImportingSRT
+                ? "Importing..."
+                : importSRTResult
+                  ? `Imported ${importSRTResult.count} subtitles`
+                  : "Import SRT"}
+            </span>
+          </label>
+          <input
+            id="import-srt-input"
+            type="file"
+            accept=".srt"
+            className="hidden"
+            disabled={isImportingSRT}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) {
+                handleImportSRT(file);
+                e.target.value = "";
+              }
+            }}
+          />
+          <p className="text-[9px] text-text-muted text-center mt-1">
+            Import .srt — timestamps sync automatically to timeline
+          </p>
+        </div>
       </div>
 
       {/* Voice Narration Section */}

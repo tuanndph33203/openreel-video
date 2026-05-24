@@ -132,8 +132,9 @@ export function parseSRT(srtContent: string): SRTParseResult {
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n");
   const blocks = normalizedContent
-    .split(/\n\n+/)
-    .filter((block) => block.trim());
+    .split(/\n\s*\n/)
+    .map((block) => block.trim())
+    .filter((block) => block.length > 0);
 
   let lineNumber = 1;
 
