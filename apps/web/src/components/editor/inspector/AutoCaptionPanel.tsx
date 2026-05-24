@@ -75,6 +75,9 @@ export const AutoCaptionPanel: React.FC = () => {
   const subtitles = useProjectStore((state) => state.project?.timeline?.subtitles || []);
   const hasSubtitles = subtitles.length > 0;
   
+  const project = useProjectStore((state) => state.project);
+  const updateSettings = useProjectStore((state) => state.updateSettings);
+  
   const selectedClipIds = useUIStore((state) => state.getSelectedClipIds());
 
   const handleExportSRT = useCallback(async () => {
@@ -133,6 +136,7 @@ export const AutoCaptionPanel: React.FC = () => {
   const [aiProvider, setAiProvider] = useState<"openai" | "anthropic">(defaultLlmProvider === "anthropic" ? "anthropic" : "openai");
   const [aiTone, setAiTone] = useState<string>("natural and fluent");
   const [videoContext, setVideoContext] = useState<string>("");
+  const [glossaryText, setGlossaryText] = useState<string>("");
 
   // TTS configurations
   const [ttsProvider, setTtsProvider] = useState<TtsProvider>(defaultProvider);
@@ -147,6 +151,39 @@ export const AutoCaptionPanel: React.FC = () => {
   const [isGeneratingTts, setIsGeneratingTts] = useState<boolean>(false);
   const [ttsProgress, setTtsProgress] = useState<{ current: number; total: number; message: string } | null>(null);
   const [ttsTargetType, setTtsTargetType] = useState<"original" | "translated" | "auto">("auto");
+
+  // Save automation config to project settings helper
+  const saveAutomationConfig = useCallback((updates: Partial<NonNullable<typeof project.settings.automationConfig>>) => {
+    if (!project) return;
+    const currentConfig = project.settings?.automationConfig || { autoCaption: true, tts: false };
+    updateSettings({
+      automationConfig: {
+        ...currentConfig,
+        ...updates
+      }
+    });
+  }, [project, updateSettings]);
+
+  // Load configuration from project settings when project changes
+  React.useEffect(() => {
+    if (project) {
+      const config = project.settings?.automationConfig;
+      if (config) {
+        if (config.sourceLanguage !== undefined) setSourceLanguage(config.sourceLanguage);
+        if (config.targetLanguage !== undefined) setTargetLanguage(config.targetLanguage);
+        if (config.animationStyle !== undefined) setAnimationStyle(config.animationStyle as CaptionAnimationStyle);
+        if (config.translationMethod !== undefined) setTranslationMethod(config.translationMethod);
+        if (config.aiProvider !== undefined) setAiProvider(config.aiProvider);
+        if (config.aiTone !== undefined) setAiTone(config.aiTone);
+        if (config.videoContext !== undefined) setVideoContext(config.videoContext);
+        if (config.glossaryText !== undefined) setGlossaryText(config.glossaryText);
+        if (config.ttsProvider !== undefined) setTtsProvider(config.ttsProvider);
+        if (config.ttsVoiceId !== undefined) setSelectedVoice(config.ttsVoiceId);
+        if (config.ttsSpeed !== undefined) setTtsSpeed(config.ttsSpeed);
+        if (config.ttsTargetType !== undefined) setTtsTargetType(config.ttsTargetType);
+      }
+    }
+  }, [project?.id]);
 
   // Sync state values if defaults change
   React.useEffect(() => {
@@ -451,8 +488,7 @@ export const AutoCaptionPanel: React.FC = () => {
         selectedMedia,
         setProgress,
       );
-      const addVideoEffect = useProjectStore.getState().addVideoEffect;
-      for (const subtitle of subtitles) {
+      for (const subtitle of subtitlesResult) {
         await addSubtitle({
           ...subtitle,
           animationStyle,
@@ -460,16 +496,7 @@ export const AutoCaptionPanel: React.FC = () => {
       }
 
       setLastCaptionCount(subtitlesResult.length);
-      // Add horizontal blur effect to cover hard subs
-      if (selectedClip && addVideoEffect) {
-        addVideoEffect(selectedClip.id, "blur", {
-          radius: 12,
-          type: "gaussian",
-          maskY: 0.85,
-        });
-      }
 
-      setLastCaptionCount(subtitles.length);
       setProgress({
         phase: "complete",
         progress: 100,
@@ -533,7 +560,10 @@ export const AutoCaptionPanel: React.FC = () => {
           </div>
           <Select
             value={sourceLanguage}
-            onValueChange={setSourceLanguage}
+            onValueChange={(val) => {
+              setSourceLanguage(val);
+              saveAutomationConfig({ sourceLanguage: val });
+            }}
             disabled={isTranscribing}
           >
             <SelectTrigger className="w-auto min-w-[120px] bg-background-secondary border-border text-text-primary text-[10px]">
@@ -556,9 +586,14 @@ export const AutoCaptionPanel: React.FC = () => {
             value={targetLanguage}
             onValueChange={(val) => {
               setTargetLanguage(val);
+              const nextMethod = val === "none" ? "google" : translationMethod;
               if (val === "none") {
                 setTranslationMethod("google");
               }
+              saveAutomationConfig({ 
+                targetLanguage: val, 
+                translationMethod: nextMethod 
+              });
             }}
             disabled={isTranscribing}
           >
@@ -585,7 +620,10 @@ export const AutoCaptionPanel: React.FC = () => {
               <span className="text-[10px] text-text-secondary">Translation Mode</span>
               <Select
                 value={translationMethod}
-                onValueChange={(val: "google" | "ai") => setTranslationMethod(val)}
+                onValueChange={(val: "google" | "ai") => {
+                  setTranslationMethod(val);
+                  saveAutomationConfig({ translationMethod: val });
+                }}
                 disabled={isTranscribing}
               >
                 <SelectTrigger className="w-auto min-w-[120px] bg-background-secondary border-border text-text-primary text-[10px]">
@@ -614,7 +652,10 @@ export const AutoCaptionPanel: React.FC = () => {
                   <span className="text-[10px] text-text-secondary">AI Provider</span>
                   <Select
                     value={aiProvider}
-                    onValueChange={(val: "openai" | "anthropic") => setAiProvider(val)}
+                    onValueChange={(val: "openai" | "anthropic") => {
+                      setAiProvider(val);
+                      saveAutomationConfig({ aiProvider: val });
+                    }}
                     disabled={isTranscribing}
                   >
                     <SelectTrigger className="w-auto min-w-[120px] bg-background-secondary border-border text-text-primary text-[10px]">
@@ -632,7 +673,10 @@ export const AutoCaptionPanel: React.FC = () => {
                   <span className="text-[10px] text-text-secondary">AI Tone/Style</span>
                   <Select
                     value={aiTone}
-                    onValueChange={setAiTone}
+                    onValueChange={(val) => {
+                      setAiTone(val);
+                      saveAutomationConfig({ aiTone: val });
+                    }}
                     disabled={isTranscribing}
                   >
                     <SelectTrigger className="w-auto min-w-[120px] bg-background-secondary border-border text-text-primary text-[10px]">
@@ -654,9 +698,33 @@ export const AutoCaptionPanel: React.FC = () => {
                   <input
                     type="text"
                     value={videoContext}
-                    onChange={(e) => setVideoContext(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setVideoContext(val);
+                      saveAutomationConfig({ videoContext: val });
+                    }}
                     disabled={isTranscribing}
                     placeholder="VD: review điện thoại iPhone, vlog nấu ăn, tin tức thời sự..."
+                    className="w-full bg-background border border-border/80 rounded px-2 py-1.5 text-[10px] text-text-primary placeholder:text-text-muted/60 focus:outline-none focus:border-primary/80 focus:ring-1 focus:ring-primary/40 transition-colors"
+                  />
+                </div>
+
+                {/* Glossary (Optional) */}
+                <div className="space-y-1 mt-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-text-secondary block">Từ điển / Glossary (Tùy chọn)</span>
+                    <span className="text-[8px] text-text-muted">Định dạng: Key:Val, Key2:Val2</span>
+                  </div>
+                  <input
+                    type="text"
+                    value={glossaryText}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setGlossaryText(val);
+                      saveAutomationConfig({ glossaryText: val });
+                    }}
+                    disabled={isTranscribing}
+                    placeholder="VD: Ming:Lý Vô Địch, Silas:Tây Lạp Tư, HP:lượng máu..."
                     className="w-full bg-background border border-border/80 rounded px-2 py-1.5 text-[10px] text-text-primary placeholder:text-text-muted/60 focus:outline-none focus:border-primary/80 focus:ring-1 focus:ring-primary/40 transition-colors"
                   />
                 </div>
@@ -679,9 +747,11 @@ export const AutoCaptionPanel: React.FC = () => {
           <span className="text-[10px] text-text-secondary">Animation</span>
           <Select
             value={animationStyle}
-            onValueChange={(value) =>
-              setAnimationStyle(value as CaptionAnimationStyle)
-            }
+            onValueChange={(value) => {
+              const val = value as CaptionAnimationStyle;
+              setAnimationStyle(val);
+              saveAutomationConfig({ animationStyle: val });
+            }}
             disabled={isTranscribing}
           >
             <SelectTrigger className="w-auto min-w-[120px] bg-background-secondary border-border text-text-primary text-[10px]">
@@ -796,7 +866,10 @@ export const AutoCaptionPanel: React.FC = () => {
                 <span className="text-[10px] text-text-secondary">Read Target</span>
                 <Select
                   value={ttsTargetType}
-                  onValueChange={(val: "original" | "translated" | "auto") => setTtsTargetType(val)}
+                  onValueChange={(val: "original" | "translated" | "auto") => {
+                    setTtsTargetType(val);
+                    saveAutomationConfig({ ttsTargetType: val });
+                  }}
                   disabled={isGeneratingTts}
                 >
                   <SelectTrigger className="w-auto min-w-[120px] bg-background-secondary border-border text-text-primary text-[10px]">
@@ -816,7 +889,10 @@ export const AutoCaptionPanel: React.FC = () => {
               <span className="text-[10px] text-text-secondary">Voice Engine</span>
               <Select
                 value={ttsProvider}
-                onValueChange={(val: TtsProvider) => setTtsProvider(val)}
+                onValueChange={(val: TtsProvider) => {
+                  setTtsProvider(val);
+                  saveAutomationConfig({ ttsProvider: val });
+                }}
                 disabled={isGeneratingTts}
               >
                 <SelectTrigger className="w-auto min-w-[120px] bg-background-secondary border-border text-text-primary text-[10px]">
@@ -834,7 +910,10 @@ export const AutoCaptionPanel: React.FC = () => {
               <span className="text-[10px] text-text-secondary">Voice</span>
               <Select
                 value={selectedVoice}
-                onValueChange={setSelectedVoice}
+                onValueChange={(val) => {
+                  setSelectedVoice(val);
+                  saveAutomationConfig({ ttsVoiceId: val });
+                }}
                 disabled={isGeneratingTts}
               >
                 <SelectTrigger className="w-auto min-w-[120px] bg-background-secondary border-border text-text-primary text-[10px]">
@@ -862,7 +941,11 @@ export const AutoCaptionPanel: React.FC = () => {
                   max={2.0}
                   step={0.1}
                   value={[ttsSpeed]}
-                  onValueChange={(value) => setTtsSpeed(value[0])}
+                  onValueChange={(value) => {
+                    const val = value[0];
+                    setTtsSpeed(val);
+                    saveAutomationConfig({ ttsSpeed: val });
+                  }}
                   disabled={isGeneratingTts}
                 />
               </div>

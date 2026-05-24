@@ -543,11 +543,8 @@ export const useUIStore = create<UIState>()(
           set({ showWelcomeScreen: show });
         },
 
-        setSkipWelcomeScreen: (skip: boolean) => {
-          set({
-            skipWelcomeScreen: skip,
-            showWelcomeScreen: skip ? false : get().showWelcomeScreen,
-          });
+        setSkipWelcomeScreen: (_skip: boolean) => {
+          // No-op to disable skip welcome screen feature completely
         },
       }),
       {

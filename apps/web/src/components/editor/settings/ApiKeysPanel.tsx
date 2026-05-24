@@ -347,11 +347,11 @@ export const ApiKeysPanel: React.FC = () => {
                       type="text"
                       value={customOpenAiModel}
                       onChange={(e) => setCustomOpenAiModel(e.target.value)}
-                      placeholder="e.g. mimo-v2.5-pro, deepseek-chat (leave blank for auto-detect)"
+                      placeholder="e.g. mimo-v2.5, deepseek-chat (leave blank for auto-detect)"
                       className="font-mono text-xs"
                     />
                     <p className="text-[10px] text-text-muted">
-                      Optional. For MiMo (xiaomimimo.com), defaults to <strong>mimo-v2.5-pro</strong> automatically. For standard OpenAI, defaults to <code>gpt-4o-mini</code>.
+                      Optional. For MiMo (xiaomimimo.com), defaults to <strong>mimo-v2.5</strong> automatically. For standard OpenAI, defaults to <code>gpt-4o-mini</code>.
                     </p>
                   </div>
                 </div>

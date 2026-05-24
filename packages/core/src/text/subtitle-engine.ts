@@ -243,7 +243,16 @@ export function parseSRT(srtContent: string): SRTParseResult {
 }
 
 export function exportSRT(subtitles: readonly Subtitle[]): string {
-  const sorted = [...subtitles].sort((a, b) => a.startTime - b.startTime);
+  const translationMap = new Map<string, string>();
+  for (const sub of subtitles) {
+    if (sub.id.endsWith("-translated")) {
+      const originalId = sub.id.substring(0, sub.id.length - 11);
+      translationMap.set(originalId, sub.text);
+    }
+  }
+
+  const originalSubtitles = subtitles.filter(sub => !sub.id.endsWith("-translated"));
+  const sorted = [...originalSubtitles].sort((a, b) => a.startTime - b.startTime);
 
   const blocks: string[] = [];
 
@@ -252,9 +261,10 @@ export function exportSRT(subtitles: readonly Subtitle[]): string {
     const index = i + 1;
     const startTimestamp = formatSRTTimestamp(subtitle.startTime);
     const endTimestamp = formatSRTTimestamp(subtitle.endTime);
+    const text = translationMap.get(subtitle.id) || subtitle.text;
 
     blocks.push(
-      `${index}\n${startTimestamp} --> ${endTimestamp}\n${subtitle.text}`,
+      `${index}\n${startTimestamp} --> ${endTimestamp}\n${text}`,
     );
   }
 

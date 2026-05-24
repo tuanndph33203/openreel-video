@@ -20,7 +20,7 @@ export interface BackgroundRemovalSettings {
 
 export const DEFAULT_BACKGROUND_SETTINGS: BackgroundRemovalSettings = {
   enabled: false,
-  mode: "blur",
+  mode: "transparent",
   blurAmount: 15,
   backgroundColor: "#00ff00",
   edgeBlur: 3,

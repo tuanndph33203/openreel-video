@@ -107,11 +107,30 @@ export function useAutomationCallbacks() {
         try {
           const apiKey = await getSecret(config.aiProvider || "openai");
           if (apiKey) {
+            let glossary: Record<string, string> | undefined = undefined;
+            if (config?.glossaryText && typeof config.glossaryText === "string" && config.glossaryText.trim()) {
+              const glossaryRecord: Record<string, string> = {};
+              config.glossaryText.split(",").forEach((item: string) => {
+                const parts = item.split(":");
+                if (parts.length >= 2) {
+                  const key = parts[0].trim();
+                  const val = parts.slice(1).join(":").trim();
+                  if (key && val) {
+                    glossaryRecord[key] = val;
+                  }
+                }
+              });
+              if (Object.keys(glossaryRecord).length > 0) {
+                glossary = glossaryRecord;
+              }
+            }
+
             aiConfig = {
               provider: (config.aiProvider || "openai") as "openai" | "anthropic",
               apiKey,
               tone: config.aiTone || "natural and fluent",
               videoContext: config.videoContext || undefined,
+              glossary,
               customBaseUrl: config.aiProvider === "openai" ? customOpenAiBaseUrl : customAnthropicBaseUrl,
               customModel: config.aiProvider === "openai" ? customOpenAiModel : customAnthropicModel,
             };

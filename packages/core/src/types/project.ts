@@ -8,6 +8,7 @@ export interface AutomationConfig {
   aiProvider?: "openai" | "anthropic";
   aiTone?: string;
   videoContext?: string;
+  glossaryText?: string;
   animationStyle?: string;
   
   tts: boolean;
