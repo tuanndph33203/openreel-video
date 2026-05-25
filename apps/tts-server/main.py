@@ -49,7 +49,8 @@ async def generate_speech(req: TTSRequest):
             try:
                 voice_dict = tts.get_preset_voice(req.voice)
             except ValueError as e:
-                print(f"[WARNING] Không tìm thấy preset voice '{req.voice}': {e}")
+                # Use a safe ASCII string to avoid UnicodeEncodeError on Windows cmd
+                print(f"[WARNING] Preset voice '{req.voice}' not found, falling back to default. Error: {e}".encode("ascii", "ignore").decode())
         
         # Gọi hàm tạo giọng nói
         audio = tts.infer(text=req.text, voice=voice_dict)
@@ -67,6 +68,23 @@ async def generate_speech(req: TTSRequest):
             
         return Response(content=wav_bytes, media_type="audio/wav")
     except Exception as e:
+        if "No valid speech tokens" in str(e):
+            safe_text = req.text.encode("ascii", "ignore").decode()
+            print(f"[WARNING] No valid speech tokens for text: '{safe_text}'. Returning silence.")
+            import wave
+            temp_file = f"temp_silent_{os.getpid()}.wav"
+            with wave.open(temp_file, 'w') as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2) # 16-bit
+                wf.setframerate(24000)
+                wf.writeframes(b'\x00' * int(24000 * 0.1 * 2)) # 0.1s silence
+            with open(temp_file, "rb") as f:
+                wav_bytes = f.read()
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+            return Response(content=wav_bytes, media_type="audio/wav")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

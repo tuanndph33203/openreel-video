@@ -836,6 +836,16 @@ export class TranscriptionService {
 
       const whisperResponse = await this.sendToWhisper(audioBlob, onProgress);
 
+      // Cache raw whisper response in localStorage for debugging/analysis
+      try {
+        if (typeof window !== "undefined" && window.localStorage) {
+          window.localStorage.setItem("openreel_last_whisper_raw", JSON.stringify(whisperResponse));
+          console.log("[TranscriptionService] Cached raw Whisper response in localStorage.");
+        }
+      } catch (err) {
+        console.warn("[TranscriptionService] Failed to cache Whisper response in localStorage:", err);
+      }
+
       onProgress?.({
         phase: "processing",
         progress: 90,
@@ -917,10 +927,8 @@ export class TranscriptionService {
     const resultList: Subtitle[] = [];
 
     for (const subtitle of subtitles) {
-      // 1. Keep original subtitle
-      resultList.push(subtitle);
-
       if (!subtitle.text) {
+        resultList.push(subtitle);
         continue;
       }
 
@@ -956,22 +964,24 @@ export class TranscriptionService {
             }));
           }
 
-          // 2. Add translated subtitle as a separate distinct element
           const translatedSub: Subtitle = {
             ...subtitle,
-            id: `${subtitle.id}-translated`,
             text: translatedText,
+            originalText: subtitle.text, // Store the original text here!
             words,
           };
           if (words && words.length > 0) {
             const segmentedSubs = this.segmentTranslatedSubtitle(translatedSub);
-            resultList.push(...segmentedSubs);
+            resultList.push(...segmentedSubs.map(s => ({ ...s, originalText: subtitle.text })));
           } else {
             resultList.push(translatedSub);
           }
+        } else {
+          resultList.push(subtitle);
         }
       } catch (err) {
         console.error("Failed to translate subtitle segment:", err);
+        resultList.push(subtitle);
       }
     }
 
@@ -1093,8 +1103,10 @@ export class TranscriptionService {
 
     const resultList: Subtitle[] = [];
     for (const subtitle of bestSubtitles) {
-      resultList.push(subtitle);
-      if (!subtitle.text) continue;
+      if (!subtitle.text) {
+        resultList.push(subtitle);
+        continue;
+      }
 
       const translatedText = globalTranslationMap.get(subtitle.id);
       if (translatedText) {
@@ -1112,16 +1124,18 @@ export class TranscriptionService {
 
         const translatedSub: Subtitle = {
           ...subtitle,
-          id: `${subtitle.id}-translated`,
           text: translatedText,
+          originalText: subtitle.text, // Store the original text here!
           words,
         };
         if (words && words.length > 0) {
           const segmentedSubs = this.segmentTranslatedSubtitle(translatedSub);
-          resultList.push(...segmentedSubs);
+          resultList.push(...segmentedSubs.map(s => ({ ...s, originalText: subtitle.text })));
         } else {
           resultList.push(translatedSub);
         }
+      } else {
+        resultList.push(subtitle);
       }
     }
 
@@ -1283,8 +1297,8 @@ export class TranscriptionService {
       return [translatedSub];
     }
 
-    const maxWords = 8;
-    const maxDuration = 3;
+    const maxWords = 10;
+    const maxDuration = 4;
 
     const totalWords = translatedSub.words.length;
     const totalDuration = translatedSub.endTime - translatedSub.startTime;
@@ -1293,43 +1307,38 @@ export class TranscriptionService {
       return [translatedSub];
     }
 
+    // Calculate optimal number of segments based on words and duration constraints
+    const numSegmentsByWords = Math.ceil(totalWords / maxWords);
+    const numSegmentsByDuration = Math.ceil(totalDuration / maxDuration);
+    const numSegments = Math.max(numSegmentsByWords, numSegmentsByDuration);
+
+    if (numSegments <= 1) {
+      return [translatedSub];
+    }
+
+    // Distribute words evenly across the calculated number of segments
     const segments: Subtitle[] = [];
-    let currentWords: Array<{ text: string; startTime: number; endTime: number }> = [];
-    let groupStart = translatedSub.words[0].startTime;
+    const baseWordsPerSegment = Math.floor(totalWords / numSegments);
+    let extraWords = totalWords % numSegments; // distribute remainder to the first few segments
 
-    for (const w of translatedSub.words) {
-      if (currentWords.length === 0) {
-        groupStart = w.startTime;
-      }
+    let wordIndex = 0;
+    for (let i = 0; i < numSegments; i++) {
+      const wordsCount = baseWordsPerSegment + (extraWords > 0 ? 1 : 0);
+      extraWords--;
 
-      const wouldExceedWords = currentWords.length >= maxWords;
-      const wouldExceedDuration = w.endTime - groupStart > maxDuration;
+      const segmentWords = translatedSub.words.slice(wordIndex, wordIndex + wordsCount);
+      wordIndex += wordsCount;
 
-      if ((wouldExceedWords || wouldExceedDuration) && currentWords.length > 0) {
+      if (segmentWords.length > 0) {
         segments.push({
           ...translatedSub,
           id: `${translatedSub.id}-part-${segments.length}`,
-          text: currentWords.map(cw => cw.text).join(" "),
-          startTime: currentWords[0].startTime,
-          endTime: currentWords[currentWords.length - 1].endTime,
-          words: currentWords,
+          text: segmentWords.map(cw => cw.text).join(" "),
+          startTime: segmentWords[0].startTime,
+          endTime: segmentWords[segmentWords.length - 1].endTime,
+          words: segmentWords,
         });
-        currentWords = [w];
-        groupStart = w.startTime;
-      } else {
-        currentWords.push(w);
       }
-    }
-
-    if (currentWords.length > 0) {
-      segments.push({
-        ...translatedSub,
-        id: `${translatedSub.id}-part-${segments.length}`,
-        text: currentWords.map(cw => cw.text).join(" "),
-        startTime: currentWords[0].startTime,
-        endTime: currentWords[currentWords.length - 1].endTime,
-        words: currentWords,
-      });
     }
 
     return segments;

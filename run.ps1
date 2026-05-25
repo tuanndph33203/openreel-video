@@ -1,0 +1,1 @@
+$web = Start-Job { Set-Location "C:\Users\PC\Projects\openreel-video"; pnpm.cmd dev }; $tts = Start-Job { Set-Location "C:\Users\PC\Projects\openreel-video\apps\tts-server"; python main.py }; Receive-Job -Job $web,$tts -Wait

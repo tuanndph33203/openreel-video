@@ -1344,6 +1344,8 @@ export const Preview: React.FC = () => {
               pan: 0,
               effects: previewAudio.effects,
               speed: audioClip.speed ?? 1,
+              pitchCorrection: speedEngine.isPitchCorrectionEnabled(audioClip.id),
+              inPoint: audioClip.inPoint || 0,
             });
           }
         }
@@ -1430,6 +1432,7 @@ export const Preview: React.FC = () => {
         (t) => (t.type === "audio" || t.type === "video") && !t.hidden && !t.muted,
       );
       const schedules: AudioClipSchedule[] = [];
+      const speedEngine = getSpeedEngine();
 
       for (const track of tracksWithAudio) {
         for (const clip of track.clips) {
@@ -1480,6 +1483,8 @@ export const Preview: React.FC = () => {
             pan: 0,
             effects: scheduleEffects,
             speed: clip.speed ?? 1,
+            pitchCorrection: speedEngine.isPitchCorrectionEnabled(clip.id),
+            inPoint: clip.inPoint || 0,
           });
         }
       }

@@ -213,6 +213,7 @@ export interface SubtitleWord {
 export interface Subtitle {
   readonly id: string;
   readonly text: string;
+  readonly originalText?: string;
   readonly startTime: number;
   readonly endTime: number;
   readonly style?: SubtitleStyle;

@@ -21,6 +21,8 @@ import {
   resolveClipVolumeAutomation,
 } from "./clip-audio-resolution";
 import { scheduleVolumeAutomationOnGain } from "./clip-volume-automation";
+import { AudioTimeStretcher } from "./time-stretching";
+import { getSpeedEngine } from "../video/speed-engine";
 
 const SEGMENTED_AUDIO_DECODE_THRESHOLD_SECONDS = 120;
 
@@ -360,6 +362,7 @@ export class AudioEngine {
       fadeOut: clip.fade?.fadeOut,
       speed,
       reversed: (clip as any).reversed || false,
+      pitchCorrection: getSpeedEngine().isPitchCorrectionEnabled(clip.id),
       audioTrackIndex: clip.audioTrackIndex,
     };
   }
@@ -443,14 +446,13 @@ export class AudioEngine {
     );
     const source = context.createBufferSource();
 
-    const speed = clipInfo.speed || 1;
     const reversed = clipInfo.reversed || false;
 
     const processedClip = await this.processClipBuffer(audioBuffer, clipInfo);
 
     source.buffer = processedClip.buffer;
 
-    source.playbackRate.value = reversed ? -speed : speed;
+    source.playbackRate.value = reversed ? -processedClip.effectiveSpeed : processedClip.effectiveSpeed;
 
     source.connect(volumeGainNode);
     const contextStartTime = Math.max(
@@ -497,29 +499,55 @@ export class AudioEngine {
     buffer: AudioBuffer;
     startOffset: number;
     renderDuration: number;
+    effectiveSpeed: number;
   }> {
+    const speed = clipInfo.speed ?? 1;
+    const pitchCorrection = clipInfo.pitchCorrection ?? true;
+
+    let currentBuffer = audioBuffer;
+    let currentSourceTime = clipInfo.sourceTime;
+    let currentDuration = clipInfo.duration;
+    let effectiveSpeed = speed;
+
+    if (speed !== 1.0 && pitchCorrection) {
+      // Extract segment at original speed first (input duration is timeline duration * speed)
+      const inputDuration = currentDuration * speed;
+      const extracted = this.extractAudioSegment(currentBuffer, currentSourceTime, inputDuration);
+      
+      // Perform pitch-preserved time-stretching
+      currentBuffer = AudioTimeStretcher.stretch(this.audioContext!, extracted, speed);
+      
+      currentSourceTime = 0;
+      currentDuration = currentBuffer.duration;
+      effectiveSpeed = 1.0;
+    }
+
     const enabledEffects = clipInfo.effects.filter(
       (effect) =>
         effect.enabled && effect.type !== "pan" && effect.type !== "fadeIn" && effect.type !== "fadeOut",
     );
 
+    // If speed was not 1.0 and pitchCorrection is false, we bypass effects for consistency with original behavior.
+    const hasUncorrectedSpeed = speed !== 1.0 && !pitchCorrection;
+
     if (
       enabledEffects.length === 0 ||
-      (clipInfo.speed ?? 1) !== 1 ||
+      hasUncorrectedSpeed ||
       clipInfo.reversed ||
       !this.effectsEngine
     ) {
       return {
-        buffer: audioBuffer,
-        startOffset: clipInfo.sourceTime,
-        renderDuration: clipInfo.duration,
+        buffer: currentBuffer,
+        startOffset: currentSourceTime,
+        renderDuration: currentDuration,
+        effectiveSpeed,
       };
     }
 
     const segmentBuffer = this.extractAudioSegment(
-      audioBuffer,
-      clipInfo.sourceTime,
-      clipInfo.duration,
+      currentBuffer,
+      currentSourceTime,
+      currentDuration,
     );
     const { profileAwareNoiseEffects, realtimeEffects } =
       splitProfileAwareNoiseReductionEffects(enabledEffects);
@@ -553,6 +581,7 @@ export class AudioEngine {
       buffer: processedBuffer,
       startOffset: 0,
       renderDuration: processedBuffer.duration,
+      effectiveSpeed,
     };
   }
 

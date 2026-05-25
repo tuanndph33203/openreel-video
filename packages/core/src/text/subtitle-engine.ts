@@ -244,6 +244,7 @@ export function parseSRT(srtContent: string): SRTParseResult {
 }
 
 export function exportSRT(subtitles: readonly Subtitle[]): string {
+  // Support old paired format (with -translated suffix)
   const translationMap = new Map<string, string>();
   for (const sub of subtitles) {
     if (sub.id.endsWith("-translated")) {
@@ -262,7 +263,20 @@ export function exportSRT(subtitles: readonly Subtitle[]): string {
     const index = i + 1;
     const startTimestamp = formatSRTTimestamp(subtitle.startTime);
     const endTimestamp = formatSRTTimestamp(subtitle.endTime);
-    const text = translationMap.get(subtitle.id) || subtitle.text;
+
+    // Get translated text from map (old format) or subtitle.text if it's already the translation
+    const oldFormatTranslation = translationMap.get(subtitle.id);
+    
+    let text = "";
+    if (oldFormatTranslation) {
+      // Old format: translation is oldFormatTranslation, original is subtitle.text
+      text = `${oldFormatTranslation}\n${subtitle.text}`;
+    } else if (subtitle.originalText && subtitle.originalText.trim() !== subtitle.text.trim()) {
+      // New format: translation is subtitle.text, original is subtitle.originalText
+      text = `${subtitle.text}\n${subtitle.originalText}`;
+    } else {
+      text = subtitle.text;
+    }
 
     blocks.push(
       `${index}\n${startTimestamp} --> ${endTimestamp}\n${text}`,

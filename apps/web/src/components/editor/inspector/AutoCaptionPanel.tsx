@@ -10,6 +10,8 @@ import {
   Sparkles,
   Volume2,
   Trash2,
+  Copy,
+  FileText,
 } from "lucide-react";
 import {
   initializeTranscriptionService,
@@ -102,6 +104,99 @@ export const AutoCaptionPanel: React.FC = () => {
     }
   }, [exportSRT]);
 
+  const handleExportTXT = useCallback(async () => {
+    try {
+      const translationMap = new Map<string, string>();
+      for (const sub of subtitles) {
+        if (sub.id.endsWith("-translated")) {
+          const originalId = sub.id.substring(0, sub.id.length - 11);
+          translationMap.set(originalId, sub.text);
+        }
+      }
+
+      const originalSubtitles = subtitles.filter(sub => !sub.id.endsWith("-translated"));
+      const sorted = [...originalSubtitles].sort((a, b) => a.startTime - b.startTime);
+      
+      const paragraphs = sorted.map((subtitle) => {
+        const oldFormatTranslation = translationMap.get(subtitle.id);
+        if (oldFormatTranslation) {
+          return `${oldFormatTranslation}\n${subtitle.text}`;
+        } else if (subtitle.originalText && subtitle.originalText.trim() !== subtitle.text.trim()) {
+          return `${subtitle.text}\n${subtitle.originalText}`;
+        }
+        return subtitle.text.trim();
+      });
+
+      const txtContent = paragraphs.join("\n\n"); // separate segments by double newlines for bilingual readability
+      const blob = new Blob([txtContent], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "transcription.txt";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success("Exported plain text transcript successfully!");
+    } catch (err) {
+      setError("Failed to export TXT");
+    }
+  }, [subtitles]);
+
+  const handleCopyTranscript = useCallback(async () => {
+    try {
+      const translationMap = new Map<string, string>();
+      for (const sub of subtitles) {
+        if (sub.id.endsWith("-translated")) {
+          const originalId = sub.id.substring(0, sub.id.length - 11);
+          translationMap.set(originalId, sub.text);
+        }
+      }
+
+      const originalSubtitles = subtitles.filter(sub => !sub.id.endsWith("-translated"));
+      const sorted = [...originalSubtitles].sort((a, b) => a.startTime - b.startTime);
+      
+      const paragraphs = sorted.map((subtitle) => {
+        const oldFormatTranslation = translationMap.get(subtitle.id);
+        if (oldFormatTranslation) {
+          return `${oldFormatTranslation}\n${subtitle.text}`;
+        } else if (subtitle.originalText && subtitle.originalText.trim() !== subtitle.text.trim()) {
+          return `${subtitle.text}\n${subtitle.originalText}`;
+        }
+        return subtitle.text.trim();
+      });
+
+      const txtContent = paragraphs.join("\n\n");
+      await navigator.clipboard.writeText(txtContent);
+      toast.success("Copied plain text transcript to clipboard!");
+    } catch (err) {
+      toast.error("Failed to copy transcript");
+    }
+  }, [subtitles]);
+
+  const handleDownloadWhisperCache = useCallback(() => {
+    try {
+      const raw = window.localStorage.getItem("openreel_last_whisper_raw");
+      if (!raw) {
+        toast.error("Không tìm thấy dữ liệu Whisper cached trong localStorage.");
+        return;
+      }
+      
+      const blob = new Blob([raw], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "whisper_raw_response.json";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success("Tải xuống file JSON Whisper gốc thành công!");
+    } catch (err) {
+      toast.error("Lỗi khi tải dữ liệu cache.");
+    }
+  }, []);
+
   const {
     defaultTtsProvider,
     defaultLlmProvider,
@@ -137,6 +232,13 @@ export const AutoCaptionPanel: React.FC = () => {
     useState<CaptionAnimationStyle>("word-highlight");
   const [error, setError] = useState<string | null>(null);
   const [lastCaptionCount, setLastCaptionCount] = useState<number | null>(null);
+  const [hasWhisperCache, setHasWhisperCache] = useState(() => {
+    try {
+      return typeof window !== "undefined" && !!window.localStorage.getItem("openreel_last_whisper_raw");
+    } catch {
+      return false;
+    }
+  });
 
   // AI Translation configurations
   const [translationMethod, setTranslationMethod] = useState<"google" | "ai">("google");
@@ -242,7 +344,7 @@ export const AutoCaptionPanel: React.FC = () => {
   const selectedClip = useMemo(() => {
     const clipId = selectedClipIds[0];
     return clipId ? getClip(clipId) : undefined;
-  }, [getClip, selectedClipIds]);
+  }, [getClip, selectedClipIds, project?.modifiedAt]);
 
   const selectedMedia = selectedClip
     ? getMediaItem(selectedClip.mediaId)
@@ -252,21 +354,45 @@ export const AutoCaptionPanel: React.FC = () => {
     !!selectedMedia &&
     (selectedMedia.type === "video" || selectedMedia.type === "audio");
 
-  // Filter target subtitles for TTS
-  const targetSubtitlesToSpeak = useMemo(() => {
+  // Filter target subtitles and map their correct speak text for TTS
+  const speakItems = useMemo(() => {
     if (subtitles.length === 0) return [];
-    
-    const translatedSubs = subtitles.filter((s) => s.id.endsWith("-translated"));
-    const originalSubs = subtitles.filter((s) => !s.id.endsWith("-translated"));
-    
-    if (ttsTargetType === "translated") {
-      return translatedSubs;
-    } else if (ttsTargetType === "original") {
-      return originalSubs;
+
+    const speakList: Array<{ subtitle: Subtitle; text: string }> = [];
+
+    // Check if there are any old-format paired translations in the subtitle list
+    const hasOldFormatTranslations = subtitles.some(s => s.id.endsWith("-translated"));
+
+    if (hasOldFormatTranslations) {
+      // Handle backward-compatibility for old paired format
+      const translatedSubs = subtitles.filter((s) => s.id.endsWith("-translated"));
+      const originalSubs = subtitles.filter((s) => !s.id.endsWith("-translated"));
+
+      let targetSubs = subtitles;
+      if (ttsTargetType === "translated") {
+        targetSubs = translatedSubs;
+      } else if (ttsTargetType === "original") {
+        targetSubs = originalSubs;
+      } else {
+        targetSubs = translatedSubs.length > 0 ? translatedSubs : originalSubs;
+      }
+      for (const s of targetSubs) {
+        speakList.push({ subtitle: s, text: s.text });
+      }
     } else {
-      // "auto"
-      return translatedSubs.length > 0 ? translatedSubs : originalSubs;
+      // Handle new single-layer bilingual format
+      for (const s of subtitles) {
+        if (ttsTargetType === "translated") {
+          speakList.push({ subtitle: s, text: s.text });
+        } else if (ttsTargetType === "original") {
+          speakList.push({ subtitle: s, text: s.originalText || s.text });
+        } else {
+          speakList.push({ subtitle: s, text: s.text });
+        }
+      }
     }
+
+    return speakList;
   }, [subtitles, ttsTargetType]);
 
   // Available Voices
@@ -383,12 +509,12 @@ export const AutoCaptionPanel: React.FC = () => {
   }, [isImportingSRT, addSubtitle, animationStyle]);
 
   const handleGenerateVoiceNarration = useCallback(async () => {
-    if (targetSubtitlesToSpeak.length === 0 || isGeneratingTts) return;
+    if (speakItems.length === 0 || isGeneratingTts) return;
 
     setIsGeneratingTts(true);
     setTtsProgress({
       current: 0,
-      total: targetSubtitlesToSpeak.length,
+      total: speakItems.length,
       message: "Creating TTS track...",
     });
 
@@ -396,29 +522,31 @@ export const AutoCaptionPanel: React.FC = () => {
       const trackId = await getOrCreateTtsTrackId();
       let currentIdx = 0;
 
-      for (const subtitle of targetSubtitlesToSpeak) {
-        if (!subtitle.text.trim()) {
+      for (const item of speakItems) {
+        const subtitle = item.subtitle;
+        const textToSpeak = item.text;
+        if (!textToSpeak.trim()) {
           currentIdx++;
           continue;
         }
 
         setTtsProgress({
           current: currentIdx,
-          total: targetSubtitlesToSpeak.length,
-          message: `Synthesizing segment ${currentIdx + 1}/${targetSubtitlesToSpeak.length}...`,
+          total: speakItems.length,
+          message: `Synthesizing segment ${currentIdx + 1}/${speakItems.length}...`,
         });
 
         // Call the TTS synthesis API — route to correct provider
         let blob: Blob;
         if (ttsProvider === "vieneu") {
-          blob = await generateWithVieNeu(subtitle.text.trim(), selectedVoice, ttsSpeed);
+          blob = await generateWithVieNeu(textToSpeak.trim(), selectedVoice, ttsSpeed);
         } else if (ttsProvider === "elevenlabs") {
-          blob = await generateWithElevenLabs(subtitle.text.trim(), selectedVoice);
+          blob = await generateWithElevenLabs(textToSpeak.trim(), selectedVoice);
         } else {
-          blob = await generateWithPiper(subtitle.text.trim(), selectedVoice, ttsSpeed);
+          blob = await generateWithPiper(textToSpeak.trim(), selectedVoice, ttsSpeed);
         }
 
-        const safeName = subtitle.text
+        const safeName = textToSpeak
           .trim()
           .slice(0, 32)
           .replace(/[\\/:*?"<>|]/g, "")
@@ -451,12 +579,12 @@ export const AutoCaptionPanel: React.FC = () => {
       }
 
       setTtsProgress({
-        current: targetSubtitlesToSpeak.length,
-        total: targetSubtitlesToSpeak.length,
+        current: speakItems.length,
+        total: speakItems.length,
         message: "TTS Narration generated successfully!",
       });
 
-      toast.success(`Successfully generated narration for ${targetSubtitlesToSpeak.length} subtitles.`);
+      toast.success(`Successfully generated narration for ${speakItems.length} subtitles.`);
 
       setTimeout(() => {
         setTtsProgress(null);
@@ -469,7 +597,7 @@ export const AutoCaptionPanel: React.FC = () => {
       setIsGeneratingTts(false);
     }
   }, [
-    targetSubtitlesToSpeak,
+    speakItems,
     isGeneratingTts,
     ttsProvider,
     selectedVoice,
@@ -536,6 +664,7 @@ export const AutoCaptionPanel: React.FC = () => {
       }
 
       setLastCaptionCount(subtitlesResult.length);
+      setHasWhisperCache(true);
 
       setProgress({
         phase: "complete",
@@ -872,6 +1001,17 @@ export const AutoCaptionPanel: React.FC = () => {
       )}
 
       <div className="space-y-2">
+        {hasWhisperCache && (
+          <button
+            onClick={handleDownloadWhisperCache}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-amber-500/10 border border-amber-500/30 text-amber-300 hover:bg-amber-500/20 transition-colors rounded-lg mb-2"
+            title="Tải xuống tệp phản hồi JSON gốc của Whisper để phân tích lỗi sắp xếp"
+          >
+            <Download size={14} className="text-amber-400" />
+            <span className="text-[11px] font-medium text-amber-300">Download Raw Whisper JSON</span>
+          </button>
+        )}
+
         <button
           onClick={handleGenerateCaptions}
           disabled={!canTranscribe || isTranscribing}
@@ -888,24 +1028,45 @@ export const AutoCaptionPanel: React.FC = () => {
         </button>
 
         {hasSubtitles && (
-          <div className="flex gap-2 w-full">
-            <button
-              onClick={handleExportSRT}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-background-secondary border border-border text-text-primary rounded-lg hover:bg-background-tertiary transition-colors"
-            >
-              <Download size={14} />
-              <span className="text-[11px] font-medium">Export SRT</span>
-            </button>
-            <button
-              onClick={() => {
-                clearCaptions();
-                toast.success("Cleared all captions and subtitles successfully!");
-              }}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg hover:bg-red-500/20 transition-colors"
-            >
-              <Trash2 size={14} />
-              <span className="text-[11px] font-medium">Clear All</span>
-            </button>
+          <div className="space-y-2 w-full">
+            <div className="flex gap-2 w-full">
+              <button
+                onClick={handleExportSRT}
+                className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-background-secondary border border-border text-text-primary rounded-lg hover:bg-background-tertiary transition-colors"
+                title="Xuất tệp phụ đề SRT"
+              >
+                <Download size={14} />
+                <span className="text-[11px] font-medium">Export SRT</span>
+              </button>
+              <button
+                onClick={handleExportTXT}
+                className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-background-secondary border border-border text-text-primary rounded-lg hover:bg-background-tertiary transition-colors"
+                title="Xuất văn bản thô dạng TXT"
+              >
+                <FileText size={14} className="text-primary" />
+                <span className="text-[11px] font-medium">Export TXT</span>
+              </button>
+            </div>
+            <div className="flex gap-2 w-full">
+              <button
+                onClick={handleCopyTranscript}
+                className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-background-secondary border border-border text-text-primary rounded-lg hover:bg-background-tertiary transition-colors"
+                title="Sao chép toàn bộ văn bản transcribe"
+              >
+                <Copy size={14} className="text-teal-400" />
+                <span className="text-[11px] font-medium">Copy Text</span>
+              </button>
+              <button
+                onClick={() => {
+                  clearCaptions();
+                  toast.success("Cleared all captions and subtitles successfully!");
+                }}
+                className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg hover:bg-red-500/20 transition-colors"
+              >
+                <Trash2 size={14} />
+                <span className="text-[11px] font-medium">Clear All</span>
+              </button>
+            </div>
           </div>
         )}
 
@@ -981,7 +1142,7 @@ export const AutoCaptionPanel: React.FC = () => {
         ) : (
           <div className="space-y-3">
             {/* Target Subtitles Option */}
-            {subtitles.some(s => s.id.endsWith("-translated")) && (
+            {(subtitles.some(s => s.id.endsWith("-translated")) || subtitles.some(s => s.originalText)) && (
               <div className="flex items-center justify-between gap-3">
                 <span className="text-[10px] text-text-secondary">Read Target</span>
                 <Select
@@ -1091,7 +1252,7 @@ export const AutoCaptionPanel: React.FC = () => {
 
             <button
               onClick={handleGenerateVoiceNarration}
-              disabled={targetSubtitlesToSpeak.length === 0 || isGeneratingTts}
+              disabled={speakItems.length === 0 || isGeneratingTts}
               className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary/20 border border-primary/40 text-primary hover:bg-primary/30 transition-colors rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isGeneratingTts ? (
@@ -1100,7 +1261,7 @@ export const AutoCaptionPanel: React.FC = () => {
                 <Sparkles size={16} />
               )}
               <span className="text-[11px] font-medium">
-                {isGeneratingTts ? "Generating..." : `Generate Voice Narration (${targetSubtitlesToSpeak.length})`}
+                {isGeneratingTts ? "Generating..." : `Generate Voice Narration (${speakItems.length})`}
               </span>
             </button>
           </div>

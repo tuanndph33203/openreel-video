@@ -5,6 +5,7 @@ import {
 import type { AutomationPoint, Effect } from "../types/timeline";
 import { createNoiseReductionNodeChain } from "./audio-effects-engine";
 import { scheduleVolumeAutomationOnGain } from "./clip-volume-automation";
+import { AudioTimeStretcher } from "./time-stretching";
 
 export interface AudioClipSchedule {
   clipId: string;
@@ -18,6 +19,8 @@ export interface AudioClipSchedule {
   pan: number;
   effects: Effect[];
   speed: number;
+  pitchCorrection?: boolean;
+  inPoint?: number;
 }
 
 export interface TrackConfig {
@@ -538,9 +541,33 @@ export class RealtimeAudioGraph {
     const trackNodes = this.trackNodes.get(schedule.trackId);
     if (!trackNodes) return;
 
+    const speed = schedule.speed;
+    const pitchCorrection = schedule.pitchCorrection ?? true;
+    const duration = schedule.endTime - schedule.startTime;
+
+    let bufferToUse = schedule.audioBuffer;
+    let effectiveSpeed = speed;
+    let effectiveMediaOffset = schedule.mediaOffset;
+    let isStretched = false;
+
+    if (speed !== 1.0 && pitchCorrection) {
+      // Extract segment at original speed first (input duration is timeline duration * speed)
+      // Extract from the absolute inPoint of the clip, not the current real-time playhead mediaOffset
+      const clipInPoint = schedule.inPoint ?? 0;
+      const inputDuration = duration * speed;
+      const extracted = this.extractAudioSegment(bufferToUse, clipInPoint, inputDuration);
+      
+      // Perform time-stretching
+      bufferToUse = AudioTimeStretcher.stretch(this.audioContext, extracted, speed);
+      
+      effectiveMediaOffset = 0;
+      effectiveSpeed = 1.0;
+      isStretched = true;
+    }
+
     const source = this.audioContext.createBufferSource();
-    source.buffer = schedule.audioBuffer;
-    source.playbackRate.value = schedule.speed * this.masterClock.rate;
+    source.buffer = bufferToUse;
+    source.playbackRate.value = effectiveSpeed * this.masterClock.rate;
 
     const clipGain = this.audioContext.createGain();
 
@@ -551,7 +578,6 @@ export class RealtimeAudioGraph {
     const contextStartTime =
       this.audioContext.currentTime +
       (schedule.startTime - this.masterClock.currentTime) / playbackRate;
-    const duration = schedule.endTime - schedule.startTime;
 
     let playbackStartTime = contextStartTime;
     let clipOffset = 0;
@@ -566,17 +592,17 @@ export class RealtimeAudioGraph {
         playbackDuration,
         playbackStartTime,
       );
-      source.start(contextStartTime, schedule.mediaOffset);
+      source.start(contextStartTime, effectiveMediaOffset);
       source.stop(contextStartTime + playbackDuration);
     } else {
       clipOffset = this.masterClock.currentTime - schedule.startTime;
-      const sourceOffset = clipOffset * schedule.speed + schedule.mediaOffset;
+      const sourceOffset = isStretched ? clipOffset : (clipOffset * speed + schedule.mediaOffset);
       playbackDuration = (duration - clipOffset) / playbackRate;
       playbackStartTime = this.audioContext.currentTime;
 
       if (
         playbackDuration > 0 &&
-        sourceOffset < schedule.audioBuffer.duration
+        sourceOffset < bufferToUse.duration
       ) {
         scheduleVolumeAutomationOnGain(
           clipGain,
@@ -716,6 +742,31 @@ export class RealtimeAudioGraph {
     this.stopAllClips();
     this.lastScheduledTime = time;
     this.seekPending = true;
+  }
+
+  private extractAudioSegment(
+    sourceBuffer: AudioBuffer,
+    startTime: number,
+    duration: number,
+  ): AudioBuffer {
+    const startSample = Math.max(0, Math.floor(startTime * sourceBuffer.sampleRate));
+    const length = Math.max(1, Math.ceil(duration * sourceBuffer.sampleRate));
+    const segmentBuffer = this.audioContext.createBuffer(
+      sourceBuffer.numberOfChannels,
+      length,
+      sourceBuffer.sampleRate,
+    );
+
+    for (let channel = 0; channel < sourceBuffer.numberOfChannels; channel++) {
+      const sourceData = sourceBuffer.getChannelData(channel);
+      const targetData = segmentBuffer.getChannelData(channel);
+
+      for (let index = 0; index < length; index++) {
+        targetData[index] = sourceData[startSample + index] || 0;
+      }
+    }
+
+    return segmentBuffer;
   }
 
   dispose(): void {

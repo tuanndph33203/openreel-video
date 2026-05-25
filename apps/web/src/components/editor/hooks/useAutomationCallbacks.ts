@@ -217,15 +217,39 @@ export function useAutomationCallbacks() {
 
     console.log(`[TTS] Provider: ${provider}, Voice: ${voiceId}, Speed: ${speed}x`);
 
-    let targetSubtitlesToSpeak = subtitles;
-    if (config?.ttsTargetType === "translated") {
-      targetSubtitlesToSpeak = subtitles.filter((s) => s.id.endsWith("-translated"));
-    } else if (config?.ttsTargetType === "original") {
-      targetSubtitlesToSpeak = subtitles.filter((s) => !s.id.endsWith("-translated"));
+    // Prepare subtitles and their corresponding speak texts
+    const speakItems: Array<{ subtitle: Subtitle; text: string }> = [];
+
+    // Check if there are any old-format paired translations in the subtitle list
+    const hasOldFormatTranslations = subtitles.some(s => s.id.endsWith("-translated"));
+
+    if (hasOldFormatTranslations) {
+      // Handle backward-compatibility for old paired format
+      let targetSubs = subtitles;
+      if (config?.ttsTargetType === "translated") {
+        targetSubs = subtitles.filter((s) => s.id.endsWith("-translated"));
+      } else if (config?.ttsTargetType === "original") {
+        targetSubs = subtitles.filter((s) => !s.id.endsWith("-translated"));
+      } else {
+        const translatedSubs = subtitles.filter((s) => s.id.endsWith("-translated"));
+        targetSubs = translatedSubs.length > 0 ? translatedSubs : subtitles.filter((s) => !s.id.endsWith("-translated"));
+      }
+      for (const s of targetSubs) {
+        speakItems.push({ subtitle: s, text: s.text });
+      }
     } else {
-      const translatedSubs = subtitles.filter((s) => s.id.endsWith("-translated"));
-      targetSubtitlesToSpeak = translatedSubs.length > 0 ? translatedSubs : subtitles.filter((s) => !s.id.endsWith("-translated"));
+      // Handle new single-layer bilingual format
+      for (const s of subtitles) {
+        if (config?.ttsTargetType === "translated") {
+          speakItems.push({ subtitle: s, text: s.text });
+        } else if (config?.ttsTargetType === "original") {
+          speakItems.push({ subtitle: s, text: s.originalText || s.text });
+        } else {
+          speakItems.push({ subtitle: s, text: s.text });
+        }
+      }
     }
+
     // Ensure project.timeline and tracks exist
     if (!project.timeline) {
       (project as any).timeline = { tracks: [], subtitles: [], duration: 0, markers: [] };
@@ -251,9 +275,11 @@ export function useAutomationCallbacks() {
     const ttsTrack = project.timeline.tracks.find(t => t.id === ttsTrackId)!;
     const newClips: any[] = [];
 
-    for (let subIdx = 0; subIdx < targetSubtitlesToSpeak.length; subIdx++) {
-      const subtitle = targetSubtitlesToSpeak[subIdx];
-      if (!subtitle.text.trim()) continue;
+    for (let subIdx = 0; subIdx < speakItems.length; subIdx++) {
+      const item = speakItems[subIdx];
+      const subtitle = item.subtitle;
+      const textToSpeak = item.text;
+      if (!textToSpeak.trim()) continue;
 
       // Delay giữa các request:
       // - VieNeu (localhost): không cần delay — server cục bộ, không giới hạn
@@ -262,19 +288,19 @@ export function useAutomationCallbacks() {
         await delay(6_500);
       }
 
-      const totalNonEmpty = targetSubtitlesToSpeak.filter(s => s.text.trim()).length;
-      console.log(`[TTS] Tổng hợp giọng nói ${subIdx + 1}/${totalNonEmpty} [${provider}]: "${subtitle.text.trim().substring(0, 60)}"`);
+      const totalNonEmpty = speakItems.filter(item => item.text.trim()).length;
+      console.log(`[TTS] Tổng hợp giọng nói ${subIdx + 1}/${totalNonEmpty} [${provider}]: "${textToSpeak.trim().substring(0, 60)}"`);
 
       // Gọi đúng API theo provider
       let blob: Blob;
       if (provider === "vieneu") {
         // VieNeu: server local, không rate limit, không cần retry
-        blob = await generateWithVieNeu(subtitle.text.trim(), voiceId, speed);
+        blob = await generateWithVieNeu(textToSpeak.trim(), voiceId, speed);
       } else if (provider === "elevenlabs") {
-        blob = await callTtsWithRetry(() => generateWithElevenLabs(subtitle.text.trim(), voiceId), 5, 65_000);
+        blob = await callTtsWithRetry(() => generateWithElevenLabs(textToSpeak.trim(), voiceId), 5, 65_000);
       } else {
         // piper (cloud)
-        blob = await callTtsWithRetry(() => generateWithPiper(subtitle.text.trim(), voiceId, speed), 5, 65_000);
+        blob = await callTtsWithRetry(() => generateWithPiper(textToSpeak.trim(), voiceId, speed), 5, 65_000);
       }
 
       const fileName = `TTS_${Date.now()}.wav`;
