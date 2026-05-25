@@ -33,7 +33,7 @@ export function useWatchFolderAutoResume() {
             if (watchName) {
               // Check if already registered
               const statusList = AutomationManager.getInstance().getStatus();
-              const isAlreadyWatched = statusList.some(s => s.projectId === project.id);
+              const isAlreadyWatched = statusList.watchedProjects.some((s: any) => s.projectId === project.id);
               
               if (!isAlreadyWatched) {
                 const dirInfo = await loadDirectoryHandle(project.id);

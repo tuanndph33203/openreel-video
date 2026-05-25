@@ -104,7 +104,7 @@ export const Toolbar: React.FC = () => {
   const { track } = useAnalytics();
   const automationCallbacks = useAutomationCallbacks();
 
-  const [automationQueues, setAutomationQueues] = useState<any[]>([]);
+  const [automationQueues, setAutomationQueues] = useState<any>({ watchedProjects: [], queue: [] });
 
   useEffect(() => {
     const refresh = () => {
@@ -115,7 +115,7 @@ export const Toolbar: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
-  const currentProjectQueue = automationQueues.find(q => q.projectId === project?.id);
+  const currentProjectQueue = automationQueues.watchedProjects?.find((q: any) => q.projectId === project?.id);
   const isWatching = !!project?.settings?.automationConfig?.watchFolderName;
   const needsAuth = isWatching && currentProjectQueue && !currentProjectQueue.permissionGranted;
 
@@ -180,7 +180,7 @@ export const Toolbar: React.FC = () => {
   useEffect(() => {
     if (project && project.settings.automationConfig?.watchFolderName) {
       const statusList = AutomationManager.getInstance().getStatus();
-      const isAlreadyWatched = statusList.some(s => s.projectId === project.id);
+      const isAlreadyWatched = statusList.watchedProjects.some((s: any) => s.projectId === project.id);
       if (!isAlreadyWatched) {
         import("../../services/media-storage").then(({ loadDirectoryHandle }) => {
           loadDirectoryHandle(project.id).then((dirInfo) => {

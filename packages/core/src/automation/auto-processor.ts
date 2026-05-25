@@ -21,7 +21,6 @@ export class AutoProcessor {
   private readonly folderHandle: FileSystemDirectoryHandle;
   private readonly exportEngine: ExportEngine;
   private readonly callbacks?: AutomationCallbacks;
-  private queue: FileSystemFileHandle[] = [];
   private processing = false;
   private currentPhase = "";
   private currentProgress = 0;
@@ -38,17 +37,6 @@ export class AutoProcessor {
     this.callbacks = callbacks;
   }
 
-  /** Enqueue a new file to be processed. */
-  enqueue(fileHandle: FileSystemFileHandle) {
-    this.queue.push(fileHandle);
-    this.runQueue();
-  }
-
-  /** Return current queue length. */
-  getQueueLength(): number {
-    return this.queue.length;
-  }
-
   /** Return whether a job is currently being processed. */
   isProcessing(): boolean {
     return this.processing;
@@ -58,12 +46,10 @@ export class AutoProcessor {
     return { phase: this.currentPhase, percent: this.currentProgress };
   }
 
-  private async runQueue() {
+  /** Processes a single file from start to finish. */
+  async processJob(fileHandle: FileSystemFileHandle): Promise<void> {
     if (this.processing) return; // already working
-    if (this.queue.length === 0) return;
-
     this.processing = true;
-    const fileHandle = this.queue.shift()!;
     try {
       const clonedProject = structuredClone(this.project) as Project;
       const config = clonedProject.settings.automationConfig;
@@ -187,6 +173,12 @@ export class AutoProcessor {
             reportProgress("Exporting", percent);
           }
         }
+        
+        this.currentPhase = "Complete";
+        this.currentProgress = 100;
+        if (this.callbacks?.onProgress) {
+          this.callbacks.onProgress(clonedProject.id, "Complete", 100);
+        }
 
         if (finalResult && !finalResult.success) {
           throw new Error(finalResult.error?.message || "Export failed");
@@ -217,12 +209,11 @@ export class AutoProcessor {
       if (this.callbacks?.onProgress) {
         this.callbacks.onProgress(this.project.id, this.currentPhase, 0);
       }
+      throw e;
     } finally {
       this.processing = false;
       this.currentPhase = "";
       this.currentProgress = 0;
-      // continue with next items
-      if (this.queue.length > 0) this.runQueue();
     }
   }
 

@@ -1,1 +1,1 @@
-export { AutomationManager } from './automation-manager';
+export { AutomationManager, type AutomationJob } from './automation-manager';

@@ -60,7 +60,7 @@ export const WatchFolderDialog: React.FC<WatchFolderDialogProps> = ({
       
       onConfirm(dirHandle);
       onOpenChange(false);
-      const queuesCount = AutomationManager.getInstance().getStatus().length;
+      const queuesCount = AutomationManager.getInstance().getStatus().watchedProjects.length;
       toast.success("Watch folder set!", `Folder "${dirHandle.name}" will be monitored. Active Queues: ${queuesCount}`);
     } catch (e) {
       console.error(e);

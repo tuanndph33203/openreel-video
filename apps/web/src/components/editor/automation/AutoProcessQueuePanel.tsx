@@ -15,11 +15,14 @@ export const AutoProcessQueuePanel: React.FC = () => {
     if (!project) return;
     const refresh = () => {
       const manager = AutomationManager.getInstance();
-      const status = manager.getStatus().find((s: any) => s.projectId === project.id);
-      if (status) {
-        setQueueLength(status.queueLength);
-        setProcessing(status.processing);
-      }
+      const status = manager.getStatus();
+      
+      const projectJobs = status.queue.filter((j: any) => j.projectId === project.id);
+      const isProcessing = projectJobs.some((j: any) => j.status === 'processing');
+      const pendingCount = projectJobs.filter((j: any) => j.status === 'queued').length;
+      
+      setQueueLength(pendingCount);
+      setProcessing(isProcessing);
     };
     // Initial load
     refresh();

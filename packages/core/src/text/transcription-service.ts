@@ -250,21 +250,26 @@ export class TranscriptionService {
       ? `Additional Context/Topic of the video: ${aiConfig.videoContext}\n`
       : "";
 
-    const systemPrompt = `You are a professional video translator. Translate the following subtitles into ${targetLanguage}.
-${contextPrompt}Maintain the contextual flow, conversational tone, and exact meaning across the entire sequence.
-The requested tone is: ${tone}.
-Do not summarize. Translate every text segment exactly.
-CRITICAL LENGTH RULE: Each subtitle has a "wc" field showing the original word count. Your translation MUST have approximately the same number of words as that "wc" value (±2 words max). Subtitle timing is fixed — if your translation is too long, shorten it naturally. Never expand a short line into a long sentence.
-IMPORTANT: You MUST respond ONLY with a JSON object in this format:
+    const systemPrompt = `You are an expert video subtitle translator. Your task is to translate subtitles into ${targetLanguage} accurately and naturally.
+${contextPrompt}
+Guidelines:
+1. DO NOT translate word-by-word. Focus on capturing the true meaning, context, and conversational flow of the entire sequence.
+2. You will be provided with 'context_before' and 'context_after' strings. Use these ONLY to understand the situation. DO NOT translate them.
+3. You must translate ONLY the objects inside the 'to_translate' array.
+4. Keep translations concise enough to be read comfortably as video subtitles. Prioritize natural grammar and phrasing over matching the exact word count.
+5. Do not mix languages. The final translation must be entirely and naturally written in ${targetLanguage}.
+6. Tone: ${tone}.
+
+IMPORTANT: You MUST respond ONLY with a JSON object in this exact format:
 {
   "translations": [
     { "id": "the-original-id", "text": "translated text here" }
   ]
 }
-Do not include any markdowns (like \`\`\`json) or other conversational filler. Return ONLY the raw JSON object.`;
+Do not include any markdown (like \`\`\`json) or conversational filler. Return ONLY valid JSON.`;
 
     // ─── Helper: build request body ───────────────────────────────────────
-    const buildRequestBody = (batchPayload: object[]) => {
+    const buildRequestBody = (batchPayload: any) => {
       if (provider === 'openai') {
         const body: any = {
           model: resolvedModel,
@@ -311,7 +316,7 @@ Do not include any markdowns (like \`\`\`json) or other conversational filler. R
 
     // ─── Helper: call AI with retry (exponential back-off) ───────────────
     const callWithRetry = async (
-      batchPayload: object[],
+      batchPayload: any,
       maxRetries = 3
     ): Promise<Map<string, string>> => {
       let lastError: unknown;
@@ -370,19 +375,14 @@ Do not include any markdowns (like \`\`\`json) or other conversational filler. R
         .slice(i + BATCH_SIZE, Math.min(textSubtitles.length, i + BATCH_SIZE + CONTEXT_WINDOW))
         .map(s => s.text);
 
-      const batchPayload: object[] = [
-        ...(prevLines.length > 0
-          ? [{ _context: 'previous', _note: 'For reference only — do NOT translate', lines: prevLines }]
-          : []),
-        ...batchLines.map(s => ({
+      const batchPayload = {
+        context_before: prevLines.length > 0 ? prevLines.join(" ") : undefined,
+        to_translate: batchLines.map(s => ({
           id: s.id,
-          text: s.text,
-          wc: s.text.trim().split(/\s+/).filter(Boolean).length
+          text: s.text
         })),
-        ...(nextLines.length > 0
-          ? [{ _context: 'next', _note: 'For reference only — do NOT translate', lines: nextLines }]
-          : [])
-      ];
+        context_after: nextLines.length > 0 ? nextLines.join(" ") : undefined,
+      };
 
       try {
         const batchMap = await callWithRetry(batchPayload, 3);
