@@ -5,8 +5,11 @@ import {
   AlertCircle,
   Loader2,
   Download,
+  Upload,
+  CheckCircle2,
   Sparkles,
   Volume2,
+  Trash2,
 } from "lucide-react";
 import {
   initializeTranscriptionService,
@@ -16,6 +19,7 @@ import {
   getAnimationStyleDisplayName,
 } from "@openreel/core";
 import { useProjectStore } from "../../../stores/project-store";
+import { parseSRT } from "../../../stores/project/subtitle-helpers";
 import { useUIStore } from "../../../stores/ui-store";
 import { OPENREEL_TRANSCRIBE_URL } from "../../../config/api-endpoints";
 import {
@@ -65,6 +69,7 @@ const TONE_OPTIONS = [
 
 export const AutoCaptionPanel: React.FC = () => {
   const addSubtitle = useProjectStore((state) => state.addSubtitle);
+  const clearCaptions = useProjectStore((state) => state.clearCaptions);
   const getClip = useProjectStore((state) => state.getClip);
   const getMediaItem = useProjectStore((state) => state.getMediaItem);
   const exportSRT = useProjectStore((state) => state.exportSRT);
@@ -74,6 +79,9 @@ export const AutoCaptionPanel: React.FC = () => {
 
   const subtitles = useProjectStore((state) => state.project?.timeline?.subtitles || []);
   const hasSubtitles = subtitles.length > 0;
+  
+  const project = useProjectStore((state) => state.project);
+  const updateSettings = useProjectStore((state) => state.updateSettings);
   
   const selectedClipIds = useUIStore((state) => state.getSelectedClipIds());
 
@@ -119,6 +127,8 @@ export const AutoCaptionPanel: React.FC = () => {
 
   // States
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [isImportingSRT, setIsImportingSRT] = useState(false);
+  const [importSRTResult, setImportSRTResult] = useState<{ count: number } | null>(null);
   const [progress, setProgress] =
     useState<WhisperTranscriptionProgress | null>(null);
   const [sourceLanguage, setSourceLanguage] = useState("none");
@@ -133,6 +143,8 @@ export const AutoCaptionPanel: React.FC = () => {
   const [aiProvider, setAiProvider] = useState<"openai" | "anthropic">(defaultLlmProvider === "anthropic" ? "anthropic" : "openai");
   const [aiTone, setAiTone] = useState<string>("natural and fluent");
   const [videoContext, setVideoContext] = useState<string>("");
+  const [glossaryText, setGlossaryText] = useState<string>("");
+  const [aiTemperature, setAiTemperature] = useState<number>(0.5);
 
   // TTS configurations
   const [ttsProvider, setTtsProvider] = useState<TtsProvider>(defaultProvider);
@@ -147,6 +159,40 @@ export const AutoCaptionPanel: React.FC = () => {
   const [isGeneratingTts, setIsGeneratingTts] = useState<boolean>(false);
   const [ttsProgress, setTtsProgress] = useState<{ current: number; total: number; message: string } | null>(null);
   const [ttsTargetType, setTtsTargetType] = useState<"original" | "translated" | "auto">("auto");
+
+  // Save automation config to project settings helper
+  const saveAutomationConfig = useCallback((updates: Partial<NonNullable<typeof project.settings.automationConfig>>) => {
+    if (!project) return;
+    const currentConfig = project.settings?.automationConfig || { autoCaption: true, tts: false };
+    updateSettings({
+      automationConfig: {
+        ...currentConfig,
+        ...updates
+      }
+    });
+  }, [project, updateSettings]);
+
+  // Load configuration from project settings when project changes
+  React.useEffect(() => {
+    if (project) {
+      const config = project.settings?.automationConfig;
+      if (config) {
+        if (config.sourceLanguage !== undefined) setSourceLanguage(config.sourceLanguage);
+        if (config.targetLanguage !== undefined) setTargetLanguage(config.targetLanguage);
+        if (config.animationStyle !== undefined) setAnimationStyle(config.animationStyle as CaptionAnimationStyle);
+        if (config.translationMethod !== undefined) setTranslationMethod(config.translationMethod);
+        if (config.aiProvider !== undefined) setAiProvider(config.aiProvider);
+        if (config.aiTone !== undefined) setAiTone(config.aiTone);
+        if (config.videoContext !== undefined) setVideoContext(config.videoContext);
+        if (config.glossaryText !== undefined) setGlossaryText(config.glossaryText);
+        if (config.aiTemperature !== undefined) setAiTemperature(config.aiTemperature);
+        if (config.ttsProvider !== undefined) setTtsProvider(config.ttsProvider);
+        if (config.ttsVoiceId !== undefined) setSelectedVoice(config.ttsVoiceId);
+        if (config.ttsSpeed !== undefined) setTtsSpeed(config.ttsSpeed);
+        if (config.ttsTargetType !== undefined) setTtsTargetType(config.ttsTargetType);
+      }
+    }
+  }, [project?.id]);
 
   // Sync state values if defaults change
   React.useEffect(() => {
@@ -306,6 +352,36 @@ export const AutoCaptionPanel: React.FC = () => {
     return newTrack.id;
   }, [addTrack]);
 
+  const handleImportSRT = useCallback(async (file: File) => {
+    if (isImportingSRT) return;
+    setIsImportingSRT(true);
+    setImportSRTResult(null);
+    setError(null);
+    try {
+      clearCaptions();
+      const text = await file.text();
+      const { subtitles: parsed, errors } = parseSRT(text);
+      if (parsed.length === 0) {
+        throw new Error(errors.length > 0 ? errors[0] : "No valid subtitles found in the SRT file.");
+      }
+      for (const subtitle of parsed) {
+        await addSubtitle({
+          ...subtitle,
+          animationStyle,
+        });
+      }
+      setImportSRTResult({ count: parsed.length });
+      toast.success(`Imported ${parsed.length} subtitles from SRT file!`);
+      if (errors.length > 0) {
+        console.warn("[ImportSRT] Errors:", errors);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to import SRT file.");
+    } finally {
+      setIsImportingSRT(false);
+    }
+  }, [isImportingSRT, addSubtitle, animationStyle]);
+
   const handleGenerateVoiceNarration = useCallback(async () => {
     if (targetSubtitlesToSpeak.length === 0 || isGeneratingTts) return;
 
@@ -419,6 +495,7 @@ export const AutoCaptionPanel: React.FC = () => {
     });
 
     try {
+      clearCaptions();
       let aiConfig = undefined;
       if (targetLanguage !== "none" && translationMethod === "ai") {
         if (!isSessionUnlocked()) {
@@ -451,8 +528,7 @@ export const AutoCaptionPanel: React.FC = () => {
         selectedMedia,
         setProgress,
       );
-      const addVideoEffect = useProjectStore.getState().addVideoEffect;
-      for (const subtitle of subtitles) {
+      for (const subtitle of subtitlesResult) {
         await addSubtitle({
           ...subtitle,
           animationStyle,
@@ -460,16 +536,7 @@ export const AutoCaptionPanel: React.FC = () => {
       }
 
       setLastCaptionCount(subtitlesResult.length);
-      // Add horizontal blur effect to cover hard subs
-      if (selectedClip && addVideoEffect) {
-        addVideoEffect(selectedClip.id, "blur", {
-          radius: 12,
-          type: "gaussian",
-          maskY: 0.85,
-        });
-      }
 
-      setLastCaptionCount(subtitles.length);
       setProgress({
         phase: "complete",
         progress: 100,
@@ -533,7 +600,10 @@ export const AutoCaptionPanel: React.FC = () => {
           </div>
           <Select
             value={sourceLanguage}
-            onValueChange={setSourceLanguage}
+            onValueChange={(val) => {
+              setSourceLanguage(val);
+              saveAutomationConfig({ sourceLanguage: val });
+            }}
             disabled={isTranscribing}
           >
             <SelectTrigger className="w-auto min-w-[120px] bg-background-secondary border-border text-text-primary text-[10px]">
@@ -556,9 +626,14 @@ export const AutoCaptionPanel: React.FC = () => {
             value={targetLanguage}
             onValueChange={(val) => {
               setTargetLanguage(val);
+              const nextMethod = val === "none" ? "google" : translationMethod;
               if (val === "none") {
                 setTranslationMethod("google");
               }
+              saveAutomationConfig({ 
+                targetLanguage: val, 
+                translationMethod: nextMethod 
+              });
             }}
             disabled={isTranscribing}
           >
@@ -585,7 +660,10 @@ export const AutoCaptionPanel: React.FC = () => {
               <span className="text-[10px] text-text-secondary">Translation Mode</span>
               <Select
                 value={translationMethod}
-                onValueChange={(val: "google" | "ai") => setTranslationMethod(val)}
+                onValueChange={(val: "google" | "ai") => {
+                  setTranslationMethod(val);
+                  saveAutomationConfig({ translationMethod: val });
+                }}
                 disabled={isTranscribing}
               >
                 <SelectTrigger className="w-auto min-w-[120px] bg-background-secondary border-border text-text-primary text-[10px]">
@@ -614,7 +692,10 @@ export const AutoCaptionPanel: React.FC = () => {
                   <span className="text-[10px] text-text-secondary">AI Provider</span>
                   <Select
                     value={aiProvider}
-                    onValueChange={(val: "openai" | "anthropic") => setAiProvider(val)}
+                    onValueChange={(val: "openai" | "anthropic") => {
+                      setAiProvider(val);
+                      saveAutomationConfig({ aiProvider: val });
+                    }}
                     disabled={isTranscribing}
                   >
                     <SelectTrigger className="w-auto min-w-[120px] bg-background-secondary border-border text-text-primary text-[10px]">
@@ -632,7 +713,10 @@ export const AutoCaptionPanel: React.FC = () => {
                   <span className="text-[10px] text-text-secondary">AI Tone/Style</span>
                   <Select
                     value={aiTone}
-                    onValueChange={setAiTone}
+                    onValueChange={(val) => {
+                      setAiTone(val);
+                      saveAutomationConfig({ aiTone: val });
+                    }}
                     disabled={isTranscribing}
                   >
                     <SelectTrigger className="w-auto min-w-[120px] bg-background-secondary border-border text-text-primary text-[10px]">
@@ -654,9 +738,56 @@ export const AutoCaptionPanel: React.FC = () => {
                   <input
                     type="text"
                     value={videoContext}
-                    onChange={(e) => setVideoContext(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setVideoContext(val);
+                      saveAutomationConfig({ videoContext: val });
+                    }}
                     disabled={isTranscribing}
                     placeholder="VD: review điện thoại iPhone, vlog nấu ăn, tin tức thời sự..."
+                    className="w-full bg-background border border-border/80 rounded px-2 py-1.5 text-[10px] text-text-primary placeholder:text-text-muted/60 focus:outline-none focus:border-primary/80 focus:ring-1 focus:ring-primary/40 transition-colors"
+                  />
+                </div>
+
+                {/* Glossary (Optional) */}
+                <div className="space-y-1 mt-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-text-secondary block">Từ điển / Glossary (Tùy chọn)</span>
+                    <span className="text-[8px] text-text-muted">Định dạng: Key:Val, Key2:Val2</span>
+                  </div>
+
+                {/* AI Temperature Slider (Dynamic) */}
+                <div className="space-y-1.5 mt-2">
+                  <div className="flex justify-between items-center text-[10px]">
+                    <span className="text-text-secondary">AI Temperature (Độ sáng tạo)</span>
+                    <span className="text-primary font-medium">{aiTemperature.toFixed(2)}</span>
+                  </div>
+                  <Slider
+                    min={0.3}
+                    max={1.0}
+                    step={0.05}
+                    value={[aiTemperature]}
+                    onValueChange={(value) => {
+                      const val = value[0];
+                      setAiTemperature(val);
+                      saveAutomationConfig({ aiTemperature: val });
+                    }}
+                    disabled={isTranscribing}
+                  />
+                  <span className="text-[8px] text-text-muted block leading-tight">
+                    Mức thấp (0.3) sẽ dịch ổn định, bám sát nghĩa gốc. Mức cao (0.5 - 1.0) cho phép AI viết bay bổng, tự nhiên hơn. Bị giới hạn tối thiểu 0.3.
+                  </span>
+                </div>
+                  <input
+                    type="text"
+                    value={glossaryText}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setGlossaryText(val);
+                      saveAutomationConfig({ glossaryText: val });
+                    }}
+                    disabled={isTranscribing}
+                    placeholder="VD: Ming:Lý Vô Địch, Silas:Tây Lạp Tư, HP:lượng máu..."
                     className="w-full bg-background border border-border/80 rounded px-2 py-1.5 text-[10px] text-text-primary placeholder:text-text-muted/60 focus:outline-none focus:border-primary/80 focus:ring-1 focus:ring-primary/40 transition-colors"
                   />
                 </div>
@@ -679,9 +810,11 @@ export const AutoCaptionPanel: React.FC = () => {
           <span className="text-[10px] text-text-secondary">Animation</span>
           <Select
             value={animationStyle}
-            onValueChange={(value) =>
-              setAnimationStyle(value as CaptionAnimationStyle)
-            }
+            onValueChange={(value) => {
+              const val = value as CaptionAnimationStyle;
+              setAnimationStyle(val);
+              saveAutomationConfig({ animationStyle: val });
+            }}
             disabled={isTranscribing}
           >
             <SelectTrigger className="w-auto min-w-[120px] bg-background-secondary border-border text-text-primary text-[10px]">
@@ -755,14 +888,71 @@ export const AutoCaptionPanel: React.FC = () => {
         </button>
 
         {hasSubtitles && (
-          <button
-            onClick={handleExportSRT}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-background-secondary border border-border text-text-primary rounded-lg hover:bg-background-tertiary transition-colors"
-          >
-            <Download size={14} />
-            <span className="text-[11px] font-medium">Export SRT</span>
-          </button>
+          <div className="flex gap-2 w-full">
+            <button
+              onClick={handleExportSRT}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-background-secondary border border-border text-text-primary rounded-lg hover:bg-background-tertiary transition-colors"
+            >
+              <Download size={14} />
+              <span className="text-[11px] font-medium">Export SRT</span>
+            </button>
+            <button
+              onClick={() => {
+                clearCaptions();
+                toast.success("Cleared all captions and subtitles successfully!");
+              }}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg hover:bg-red-500/20 transition-colors"
+            >
+              <Trash2 size={14} />
+              <span className="text-[11px] font-medium">Clear All</span>
+            </button>
+          </div>
         )}
+
+        {/* Import SRT */}
+        <div>
+          <label
+            htmlFor="import-srt-input"
+            className={[
+              "w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg border transition-colors",
+              isImportingSRT
+                ? "bg-background-secondary/50 border-border/30 text-text-muted cursor-not-allowed"
+                : "bg-background-secondary border-border text-text-primary hover:bg-background-tertiary cursor-pointer"
+            ].join(" ")}
+          >
+            {isImportingSRT ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : importSRTResult ? (
+              <CheckCircle2 size={14} className="text-green-400" />
+            ) : (
+              <Upload size={14} />
+            )}
+            <span className="text-[11px] font-medium">
+              {isImportingSRT
+                ? "Importing..."
+                : importSRTResult
+                  ? `Imported ${importSRTResult.count} subtitles`
+                  : "Import SRT"}
+            </span>
+          </label>
+          <input
+            id="import-srt-input"
+            type="file"
+            accept=".srt"
+            className="hidden"
+            disabled={isImportingSRT}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) {
+                handleImportSRT(file);
+                e.target.value = "";
+              }
+            }}
+          />
+          <p className="text-[9px] text-text-muted text-center mt-1">
+            Import .srt — timestamps sync automatically to timeline
+          </p>
+        </div>
       </div>
 
       {/* Voice Narration Section */}
@@ -796,7 +986,10 @@ export const AutoCaptionPanel: React.FC = () => {
                 <span className="text-[10px] text-text-secondary">Read Target</span>
                 <Select
                   value={ttsTargetType}
-                  onValueChange={(val: "original" | "translated" | "auto") => setTtsTargetType(val)}
+                  onValueChange={(val: "original" | "translated" | "auto") => {
+                    setTtsTargetType(val);
+                    saveAutomationConfig({ ttsTargetType: val });
+                  }}
                   disabled={isGeneratingTts}
                 >
                   <SelectTrigger className="w-auto min-w-[120px] bg-background-secondary border-border text-text-primary text-[10px]">
@@ -816,7 +1009,10 @@ export const AutoCaptionPanel: React.FC = () => {
               <span className="text-[10px] text-text-secondary">Voice Engine</span>
               <Select
                 value={ttsProvider}
-                onValueChange={(val: TtsProvider) => setTtsProvider(val)}
+                onValueChange={(val: TtsProvider) => {
+                  setTtsProvider(val);
+                  saveAutomationConfig({ ttsProvider: val });
+                }}
                 disabled={isGeneratingTts}
               >
                 <SelectTrigger className="w-auto min-w-[120px] bg-background-secondary border-border text-text-primary text-[10px]">
@@ -834,7 +1030,10 @@ export const AutoCaptionPanel: React.FC = () => {
               <span className="text-[10px] text-text-secondary">Voice</span>
               <Select
                 value={selectedVoice}
-                onValueChange={setSelectedVoice}
+                onValueChange={(val) => {
+                  setSelectedVoice(val);
+                  saveAutomationConfig({ ttsVoiceId: val });
+                }}
                 disabled={isGeneratingTts}
               >
                 <SelectTrigger className="w-auto min-w-[120px] bg-background-secondary border-border text-text-primary text-[10px]">
@@ -862,7 +1061,11 @@ export const AutoCaptionPanel: React.FC = () => {
                   max={2.0}
                   step={0.1}
                   value={[ttsSpeed]}
-                  onValueChange={(value) => setTtsSpeed(value[0])}
+                  onValueChange={(value) => {
+                    const val = value[0];
+                    setTtsSpeed(val);
+                    saveAutomationConfig({ ttsSpeed: val });
+                  }}
                   disabled={isGeneratingTts}
                 />
               </div>

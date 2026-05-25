@@ -107,11 +107,31 @@ export function useAutomationCallbacks() {
         try {
           const apiKey = await getSecret(config.aiProvider || "openai");
           if (apiKey) {
+            let glossary: Record<string, string> | undefined = undefined;
+            if (config?.glossaryText && typeof config.glossaryText === "string" && config.glossaryText.trim()) {
+              const glossaryRecord: Record<string, string> = {};
+              config.glossaryText.split(",").forEach((item: string) => {
+                const parts = item.split(":");
+                if (parts.length >= 2) {
+                  const key = parts[0].trim();
+                  const val = parts.slice(1).join(":").trim();
+                  if (key && val) {
+                    glossaryRecord[key] = val;
+                  }
+                }
+              });
+              if (Object.keys(glossaryRecord).length > 0) {
+                glossary = glossaryRecord;
+              }
+            }
+
             aiConfig = {
               provider: (config.aiProvider || "openai") as "openai" | "anthropic",
               apiKey,
               tone: config.aiTone || "natural and fluent",
               videoContext: config.videoContext || undefined,
+              glossary,
+              temperature: config.aiTemperature !== undefined ? config.aiTemperature : undefined,
               customBaseUrl: config.aiProvider === "openai" ? customOpenAiBaseUrl : customAnthropicBaseUrl,
               customModel: config.aiProvider === "openai" ? customOpenAiModel : customAnthropicModel,
             };
@@ -141,11 +161,40 @@ export function useAutomationCallbacks() {
         setProgress,
       );
 
+      // Find the corresponding video clip in project to check its speed and startTime
+      let targetClip: any = null;
+      if (project.timeline?.tracks) {
+        for (const track of project.timeline.tracks) {
+          if (track.type !== 'video') continue;
+          const clip = track.clips.find(c => c.mediaId === mediaItem.id);
+          if (clip) {
+            targetClip = clip;
+            break;
+          }
+        }
+      }
+
+      const speed = targetClip?.speed || 1.0;
+      const clipStartTime = targetClip?.startTime || 0;
+      console.log(`[AutomationCallbacks] Tốc độ clip mục tiêu: ${speed}x, Clip StartTime: ${clipStartTime}s`);
+
       console.log(`[AutomationCallbacks] Đã tạo phụ đề thành công! Số lượng: ${subtitlesResult.length}`);
-      return subtitlesResult.map(sub => ({
-        ...sub,
-        animationStyle: (config?.animationStyle || "word-highlight") as any
-      }));
+      return subtitlesResult.map(sub => {
+        const scaledSub = {
+          ...sub,
+          startTime: clipStartTime + (sub.startTime / speed),
+          endTime: clipStartTime + (sub.endTime / speed),
+          animationStyle: (config?.animationStyle || "word-highlight") as any
+        };
+        if (sub.words) {
+          scaledSub.words = sub.words.map(w => ({
+            ...w,
+            startTime: clipStartTime + (w.startTime / speed),
+            endTime: clipStartTime + (w.endTime / speed),
+          }));
+        }
+        return scaledSub;
+      });
     } catch (err) {
       console.error("[AutomationCallbacks] LỖI CRITICAL khi tạo phụ đề:", err);
       toast.error("Tạo Phụ Đề Thất Bại", err instanceof Error ? err.message : String(err));

@@ -794,6 +794,15 @@ export const Preview: React.FC = () => {
     allSubtitlesRef.current = allSubtitles;
   }, [allSubtitles]);
 
+  // Clear render cache when project is modified (e.g. clips deleted or updated)
+  // to ensure stale frames containing deleted elements are not shown in preview
+  useEffect(() => {
+    const bridge = getRenderBridge();
+    if (bridge.isInitialized()) {
+      bridge.clearCache();
+    }
+  }, [project.modifiedAt]);
+
   // Keep a ref to isScrubbing for use in playback loop
   const isScrubbingRef = useRef(false);
 

@@ -6,11 +6,9 @@ import {
   Smartphone,
   Monitor,
   Square,
-  FolderOpen,
 } from "lucide-react";
 import { Button, Label, Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, Input } from "@openreel/ui";
 import { useProjectStore } from "../../stores/project-store";
-import { useUIStore } from "../../stores/ui-store";
 import { autoSaveManager } from "../../services/auto-save";
 import { SOCIAL_MEDIA_PRESETS, type SocialMediaCategory } from "@openreel/core";
 import { TemplateGallery } from "./TemplateGallery";
@@ -135,7 +133,6 @@ interface WelcomeScreenProps {
 }
 
 export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ initialTab }) => {
-  const skipWelcomeScreen = useUIStore((state) => state.skipWelcomeScreen);
   const createNewProject = useProjectStore((state) => state.createNewProject);
   const { navigate } = useRouter();
   const { track } = useAnalytics();
@@ -240,24 +237,16 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ initialTab }) => {
   }, [navigate]);
 
   useEffect(() => {
-    if (skipWelcomeScreen) {
-      navigate("editor");
-    }
-  }, [skipWelcomeScreen, navigate]);
-
-  useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         if (viewMode !== "home") {
           setViewMode("home");
-        } else {
-          navigate("editor");
         }
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [navigate, viewMode]);
+  }, [viewMode]);
 
   if (viewMode === "templates") {
     return (
@@ -417,14 +406,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ initialTab }) => {
               <Clock size={16} />
               Recent projects
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => navigate("editor")}
-              className="rounded-xl"
-            >
-              <FolderOpen size={16} />
-              Open editor
-            </Button>
+
             <Button
               variant="outline"
               onClick={() => navigate("automation-queues")}
@@ -436,15 +418,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ initialTab }) => {
           </div>
         </div>
 
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-4">
-          <p className="text-xs text-text-muted/60">
-            Press{" "}
-            <kbd className="px-1.5 py-0.5 bg-background-tertiary border border-border rounded text-text-muted font-mono text-[10px]">
-              Esc
-            </kbd>{" "}
-            to skip
-          </p>
-        </div>
+
       </div>
 
       <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>

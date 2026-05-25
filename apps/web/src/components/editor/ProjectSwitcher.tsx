@@ -264,11 +264,14 @@ export const ProjectSwitcher: React.FC = () => {
 
     try {
       await autoSaveManager.deleteProjectSaves(projectId);
+      if (projectId === project.id) {
+        createNewProject();
+      }
       setSavedProjects((prev) => prev.filter((s) => s.projectId !== projectId));
     } catch (error) {
       console.error("[ProjectSwitcher] Failed to delete project saves:", error);
     }
-  }, []);
+  }, [project.id, createNewProject]);
 
   const otherProjects = savedProjects.filter((s) => s.projectId !== project.id);
 

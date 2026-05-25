@@ -1,6 +1,754 @@
 import type { Subtitle, SubtitleStyle, Clip } from "../types/timeline";
 import type { MediaItem } from "../types/project";
 
+export interface TranslationSettings {
+  sourceLanguage: string;
+  targetLanguage: string;
+  tone?: string;
+  topic?: string;
+  glossary?: Record<string, string>;
+  temperature?: number;
+  previousContext?: string[];
+  nextContext?: string[];
+}
+
+export interface BatchPayload {
+  sourceLanguage: string;
+  targetLanguage: string;
+  tone: string;
+  topic: string;
+  glossary?: Record<string, string>;
+  temperature?: number;
+  previousContext?: string[];
+  lines: Array<{ id: string; text: string }>;
+  nextContext?: string[];
+}
+
+export function buildSystemPrompt(settings: TranslationSettings, isUltraShort = false): string {
+  const isVietnamese = settings.targetLanguage.toLowerCase().includes("viet");
+  
+  if (isUltraShort) {
+    const viRules = isVietnamese ? "\n- Dich tu nhien (dung Ad, bọn mình, tụi mình). TUYET DOI KHONG gop dong. Giu nguyen so dong." : "";
+    return `Translate given lines from ${settings.sourceLanguage} to ${settings.targetLanguage}.${viRules}
+Rules:
+- Output MUST be a valid JSON array of strings: ["translation_1", "translation_2", ...]
+- Length of the array MUST be exactly identical to the input line count.
+- NO explanations, NO markdown, NO merged lines.`;
+  }
+
+  const viRules = isVietnamese ? `
+- CROSS-LINE CONTEXT & MULTI-SPEAKER RULE (CRITICAL): The input text is heavily fragmented and is often a game world chat log or a fast-paced conversation among multiple distinct players. Translate them as separate, natural conversational turns.
+- ASR TYPO TOLERANCE & CONTEXT REPAIR (CRITICAL): Correct common ASR homophone typos mentally before translating:
+  * "女" near names or ends of phrases -> "呢" (nhé/nhỉ/cơ mà).
+  * "一活" or "一 活" -> "复活" (hồi sinh).
+  * "调" in "调装备" -> "掉装备" (rớt đồ khi chết).
+  * "爆" in "爆装备" or "全爆了" -> "掉/rớt/bay màu" (đồ bị rớt khi tử trận), NOT explode (nổ tung).
+- GAMING TONE & SLANG: Use natural Vietnamese gamer lingo:
+  * "棒子服" or "棒子" (slang for Korean server) -> "server Hàn", "bọn Hàn" (NEVER "Bàng Tử" or "Bổng Tử").
+  * "老子" -> "Tao", "ông đây", "bố đây" (angry gamer tone).
+  * "公会" -> "bang hội".
+  * "打劫了一个服" -> "cướp cả một server".
+  * "复活点" -> "điểm hồi sinh".
+  * "国战" -> "quốc chiến".
+  * "大佬" / "老大" -> "đại ca", "đại lão".
+  * "爆了" (gear context) -> "bay màu", "rớt hết", "nổ đồ".
+- SINO-VIETNAMESE NAMES: For character names and location names written in Chinese that are NOT in the user's glossary, transliterate naturally into Sino-Vietnamese (e.g., "夜无梦" -> "Dạ Vô Mộng", "梦幻城" -> "Thành Mộng Ảo"). Use the VIDEO CONTEXT provided by the user for any additional name hints.
+- GLOSSARY PRIORITY (CRITICAL): If a user-defined Glossary is provided, it takes ABSOLUTE PRIORITY over any default translation. Always apply glossary mappings first.
+- BALANCED LINE SPLITTING (CRITICAL): When a word or phrase is split across two lines, restructure the translations on both lines so that each line is readable and natural as an individual subtitle, maintaining 1-to-1 line correspondence.
+- BAN TARGET LANGUAGE CORRUPTION (CRITICAL): Written 100% in pure, grammatically correct Vietnamese. NEVER output raw Chinese characters, pinyin, or English loanwords.` : "";
+
+  let glossaryRule = "";
+  if (settings.glossary && Object.keys(settings.glossary).length > 0) {
+    const glossaryItems = Object.entries(settings.glossary)
+      .map(([key, val]) => `  - "${key}" -> "${val}"`)
+      .join("\n");
+    glossaryRule = `\n- GLOSSARY (Translate these terms exactly as specified):\n${glossaryItems}`;
+  }
+
+  return `You are an expert subtitle translator from ${settings.sourceLanguage} to ${settings.targetLanguage}.
+Tone: ${settings.tone || "natural and fluent"}. Topic: ${settings.topic || "N/A"}.
+
+Task: Translate the given subtitle lines.
+Rules:
+- Output MUST be a valid JSON array of strings: ["translation_1", "translation_2", ...]
+- CRITICAL: The length of the returned array MUST be exactly the same as the input lines. Do NOT combine, merge, or omit any lines. Keep one-to-one correspondence in the exact same order.
+- Never translate word-by-word.
+- No conversational filler, no markdown, no explanation.${viRules}${glossaryRule}`.trim();
+}
+
+export function buildSanitizationPrompt(_settings: TranslationSettings): string {
+  return `You are an expert ASR (Speech-to-Text) data cleaning and spelling correction AI.
+Context: Short fantasy game online videos, MMORPG gameplay review, PvP server war (quốc chiến).
+Source language: Chinese.
+
+Task: Correct spelling errors, homophone typos, and formatting mistakes in the given subtitle lines.
+ASR Typo Correction Guide:
+- Correct gaming terminology and homophones. Examples:
+  * "一活" or "一 活" -> "复活" (resurrection)
+  * "调装备" or "挑装备" -> "掉装备" (drop gear upon death)
+  * "爆" in "爆装备" -> "掉/落" (dropped gear)
+  * "女" near names or ends of phrases -> "呢" or appropriate sentence particle
+  * "怪兴" -> "怪也被" or "怪都被" or similar contextually correct phrase
+  * "扶着" in targeting contexts -> "盯着" or "被盯着"
+  * "熬熬" -> "嗷嗷" (crying out)
+  * "刺魂风" -> "刺魂蜂" (ASR sting bee name correction)
+  * "叶无梦" / "夜无梦" -> "夜无梦" or "叶无梦" (ASR homophone name normalization)
+- Do NOT translate. Keep the output 100% in Simplified Chinese (zh-CN).
+- Maintain EXACTLY the same number of lines. Output MUST be a valid JSON array of strings: ["corrected_1", "corrected_2", ...]
+- Ensure each line corresponds exactly to the input line at the same index.
+- Do NOT merge, omit, or combine lines.
+- No conversational filler, no markdown, no explanation.`;
+}
+
+export function buildBatchPayload(
+  settings: TranslationSettings,
+  lines: Array<{ id: string; text: string }>,
+  previousContext?: string[],
+  nextContext?: string[]
+): BatchPayload {
+  return {
+    sourceLanguage: settings.sourceLanguage,
+    targetLanguage: settings.targetLanguage,
+    tone: settings.tone || "natural and fluent",
+    topic: settings.topic || "N/A",
+    glossary: settings.glossary,
+    previousContext: previousContext && previousContext.length > 0 ? previousContext : undefined,
+    lines,
+    nextContext: nextContext && nextContext.length > 0 ? nextContext : undefined
+  };
+}
+
+export function hasSourceChars(text: string, sourceLanguage: string): boolean {
+  const lang = sourceLanguage.toLowerCase();
+  if (lang.includes("chinese") || lang === "zh" || lang === "cn") {
+    return /[\u3400-\u9FFF]/.test(text);
+  }
+  if (lang.includes("japanese") || lang === "ja" || lang === "jp") {
+    return /[\u3040-\u30ff\u3400-\u9FFF]/.test(text);
+  }
+  if (lang.includes("korean") || lang === "ko" || lang === "kr") {
+    return /[\uac00-\ud7af]/.test(text);
+  }
+  return false;
+}
+
+export interface BatchValidationResult {
+  isValid: boolean;
+  errorReason?: string;
+}
+
+export function validateBatchResult(
+  originalLines: Array<{ id: string; text: string }>,
+  translatedMap: Map<string, string>,
+  sourceLanguage: string
+): BatchValidationResult {
+  if (translatedMap.size !== originalLines.length) {
+    return {
+      isValid: false,
+      errorReason: `Count mismatch: expected ${originalLines.length}, got ${translatedMap.size}`
+    };
+  }
+
+  for (const line of originalLines) {
+    const translatedText = translatedMap.get(line.id);
+    if (translatedText === undefined) {
+      return {
+        isValid: false,
+        errorReason: `Missing translation for line ID: ${line.id}`
+      };
+    }
+
+    if (translatedText.trim().length === 0) {
+      return {
+        isValid: false,
+        errorReason: `Empty translation for line ID: ${line.id}`
+      };
+    }
+
+    if (hasSourceChars(translatedText, sourceLanguage)) {
+      return {
+        isValid: false,
+        errorReason: `Translation for line ID ${line.id} contains source characters: "${translatedText}"`
+      };
+    }
+
+    // Only fail identical checks if the original line has source characters (like Chinese) that should have been translated
+    if (translatedText.trim() === line.text.trim() && line.text.trim().length > 0 && hasSourceChars(line.text, sourceLanguage)) {
+      return {
+        isValid: false,
+        errorReason: `Translation for line ID ${line.id} is identical to the source: "${translatedText}"`
+      };
+    }
+  }
+
+  return { isValid: true };
+}
+
+export function repairWithGlossary(text: string, glossary?: Record<string, string>): string {
+  if (!glossary || Object.keys(glossary).length === 0) {
+    return text;
+  }
+  
+  const keys = Object.keys(glossary).sort((a, b) => b.length - a.length);
+  let repaired = text;
+  
+  for (const key of keys) {
+    const value = glossary[key];
+    if (!value) continue;
+    
+    const escapedKey = key.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\import type { MediaItem } from "../types/project";');
+    let regex;
+    
+    if (/^\w+$/.test(key)) {
+      regex = new RegExp(`\\b${escapedKey}\\b`, 'gi');
+    } else {
+      regex = new RegExp(escapedKey, 'gi');
+    }
+    
+    repaired = repaired.replace(regex, value);
+  }
+  
+  return repaired;
+}
+
+export function chooseBestSourceBlock(subtitles: Subtitle[], sourceLanguage: string): Subtitle[] {
+  const isChineseOrAuto = !sourceLanguage || 
+    sourceLanguage.toLowerCase() === "none" || 
+    sourceLanguage.toLowerCase() === "auto-detect" ||
+    sourceLanguage.toLowerCase().includes("chinese") || 
+    sourceLanguage.toLowerCase() === "zh" || 
+    sourceLanguage.toLowerCase() === "cn";
+
+  if (!isChineseOrAuto || subtitles.length === 0) {
+    return subtitles;
+  }
+
+  const getChineseRatio = (text: string) => {
+    if (!text) return 0;
+    const matches = text.match(/[\u3400-\u9FFF]/g);
+    return matches ? matches.length / text.length : 0;
+  };
+
+  const sorted = [...subtitles].sort((a, b) => a.startTime - b.startTime);
+  const groups: Subtitle[][] = [];
+  
+  for (const sub of sorted) {
+    let added = false;
+    for (const group of groups) {
+      const representative = group[0];
+      if (Math.abs(sub.startTime - representative.startTime) <= 0.05) {
+        group.push(sub);
+        added = true;
+        break;
+      }
+    }
+    if (!added) {
+      groups.push([sub]);
+    }
+  }
+
+  const result: Subtitle[] = [];
+  for (const group of groups) {
+    if (group.length === 1) {
+      result.push(group[0]);
+    } else {
+      let bestSub = group[0];
+      let bestRatio = getChineseRatio(bestSub.text);
+      
+      for (let j = 1; j < group.length; j++) {
+        const sub = group[j];
+        const ratio = getChineseRatio(sub.text);
+        if (ratio > bestRatio) {
+          bestSub = sub;
+          bestRatio = ratio;
+        } else if (ratio === bestRatio) {
+          if (sub.text.length > bestSub.text.length) {
+            bestSub = sub;
+          }
+        }
+      }
+      result.push(bestSub);
+    }
+  }
+
+  return result.sort((a, b) => a.startTime - b.startTime);
+}
+
+export function formatUserMessage(
+  lines: Array<{ id: string; text: string }>,
+  previousContext?: string[],
+  nextContext?: string[]
+): string {
+  const prevStr = previousContext && previousContext.length > 0
+    ? `--- PREVIOUS CONTEXT ---\n${previousContext.join('\n')}\n\n`
+    : '';
+  const nextStr = nextContext && nextContext.length > 0
+    ? `\n\n--- NEXT CONTEXT ---\n${nextContext.join('\n')}`
+    : '';
+  
+  const linesStr = `--- LINES TO TRANSLATE ---\n${lines.map((s, i) => `Line ${i + 1}: ${s.text}`).join('\n')}`;
+  
+  return `${prevStr}${linesStr}${nextStr}`;
+}
+
+export function buildRequestBody(
+  payload: any,
+  systemPrompt: string,
+  resolvedModel: string,
+  provider: "openai" | "anthropic",
+  isMimo: boolean,
+  lineCount: number,
+  temperature = 0.5
+): any {
+  // Enforce strictly at least 0.3 and satisfy compiler
+  const finalTemperature = Math.max(0.3, temperature);
+  // User-requested testing token limit to monitor exact consumption without artificial caps
+  const maxCompletionTokens = 100000;
+  if (lineCount) {}
+
+  const userContent = typeof payload === 'string' ? payload : JSON.stringify(payload);
+
+  if (provider === 'openai') {
+    const body: any = {
+      model: resolvedModel,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userContent }
+      ],
+      temperature: finalTemperature,
+      top_p: 0.9,
+      max_completion_tokens: maxCompletionTokens
+    };
+
+    const isReasoningModel = resolvedModel.startsWith('o1') || resolvedModel.startsWith('o3');
+    if (isReasoningModel) {
+      body.reasoning_effort = "low";
+    }
+
+    if (!isMimo && !isReasoningModel) {
+      body.response_format = { type: "json_object" };
+    }
+    return body;
+  }
+
+  return {
+    model: resolvedModel,
+    max_tokens: maxCompletionTokens,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: userContent }],
+    temperature: finalTemperature
+  };
+}
+
+export async function translateBatchWithRetry(
+  batchLines: Array<{ id: string; text: string }>,
+  settings: TranslationSettings,
+  url: string,
+  headers: Record<string, string>,
+  provider: "openai" | "anthropic",
+  resolvedModel: string,
+  isMimo: boolean,
+  previousContext?: string[],
+  nextContext?: string[]
+): Promise<Map<string, string>> {
+  const parseResponse = (raw: string) => {
+    let text = raw.trim();
+    let arr: any[] = [];
+    
+    // Attempt 1: Match a JSON array [ ... ]
+    const arrayMatch = text.match(/\[[\s\S]*\]/);
+    if (arrayMatch) {
+      try {
+        arr = JSON.parse(arrayMatch[0]);
+      } catch (e) {}
+    }
+    
+    // Attempt 2: Match a JSON object { ... } and check if it has translations or array properties
+    if (!Array.isArray(arr) || arr.length === 0) {
+      const objMatch = text.match(/\{[\s\S]*\}/);
+      if (objMatch) {
+        try {
+          const parsed = JSON.parse(objMatch[0]);
+          if (Array.isArray(parsed)) {
+            arr = parsed;
+          } else if (parsed.translations && Array.isArray(parsed.translations)) {
+            arr = parsed.translations.map((t: any) => {
+              if (typeof t === 'string') return t;
+              if (t && typeof t === 'object' && t.text !== undefined) return t.text;
+              return '';
+            });
+          } else {
+            for (const key of Object.keys(parsed)) {
+              if (Array.isArray(parsed[key])) {
+                arr = parsed[key].map((t: any) => typeof t === 'string' ? t : (t && t.text ? t.text : ''));
+                break;
+              }
+            }
+          }
+        } catch (e) {}
+      }
+    }
+
+    // Attempt 3: Direct JSON parse
+    if (!Array.isArray(arr) || arr.length === 0) {
+      try {
+        const parsed = JSON.parse(text);
+        if (Array.isArray(parsed)) {
+          arr = parsed;
+        }
+      } catch (e) {}
+    }
+
+    if (!Array.isArray(arr) || arr.length === 0) {
+      throw new Error("Failed to extract a valid translation array from AI response: " + text.slice(0, 150));
+    }
+
+    // Normalize array size to match exactly the batchLines length
+    const resultArr: string[] = [];
+    for (let i = 0; i < batchLines.length; i++) {
+      if (arr[i] !== undefined && arr[i] !== null) {
+        resultArr.push(String(arr[i]).trim());
+      } else {
+        resultArr.push(batchLines[i].text); // Fallback to original text if missing
+      }
+    }
+
+    const map = new Map<string, string>();
+    for (let i = 0; i < batchLines.length; i++) {
+      map.set(batchLines[i].id, resultArr[i]);
+    }
+    return map;
+  };
+
+  const callAIOnce = async (userPrompt: string, systemPrompt: string, temperature: number) => {
+    const requestBody = buildRequestBody(
+      userPrompt,
+      systemPrompt,
+      resolvedModel,
+      provider,
+      isMimo,
+      batchLines.length,
+      temperature
+    );
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(requestBody)
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`HTTP ${response.status}: ${errText}`);
+    }
+    const json = await response.json();
+
+    const finishReason = json.choices?.[0]?.finish_reason;
+    if (finishReason === 'content_filter') {
+      const filterMsg = json.choices?.[0]?.message?.content ?? 'Content filtered';
+      throw new Error(`CONTENT_FILTER: ${filterMsg}`);
+    }
+
+    const rawContent = provider === 'openai'
+      ? (json.choices?.[0]?.message?.content ?? '')
+      : (json.content?.[0]?.text ?? '');
+
+    return parseResponse(rawContent);
+  };
+
+  const userMessage = formatUserMessage(batchLines, previousContext, nextContext);
+
+  const targetTemp = settings.temperature !== undefined ? Math.max(0.3, settings.temperature) : 0.5;
+
+  // Attempt 1: Normal Prompt, temp = 0.5
+  try {
+    console.log(`[AI Translation] Attempt 1 (Index-based, temp ${targetTemp}) for ${batchLines.length} lines...`);
+    const systemPrompt = buildSystemPrompt(settings, false);
+    const batchMap = await callAIOnce(userMessage, systemPrompt, targetTemp);
+    const validation = validateBatchResult(batchLines, batchMap, settings.sourceLanguage);
+    if (validation.isValid) {
+      return batchMap;
+    }
+    console.warn(`[AI Translation] Attempt 1 validation failed: ${validation.errorReason}`);
+  } catch (err) {
+    console.warn(`[AI Translation] Attempt 1 failed with error:`, err);
+  }
+
+  // Attempt 2: Ultra-short prompt, temp = 0.0
+  try {
+    console.log(`[AI Translation] Attempt 2 (Index-based, Ultra-short, temp ${targetTemp}) for ${batchLines.length} lines...`);
+    const systemPrompt = buildSystemPrompt(settings, true);
+    const batchMap = await callAIOnce(userMessage, systemPrompt, targetTemp);
+    const validation = validateBatchResult(batchLines, batchMap, settings.sourceLanguage);
+    if (validation.isValid) {
+      return batchMap;
+    }
+    throw new Error(`Attempt 2 validation failed: ${validation.errorReason}`);
+  } catch (err) {
+    console.warn(`[AI Translation] Attempt 2 failed with error:`, err);
+    throw err; // Trigger recursive splitting in parent call
+  }
+}
+
+export async function recursiveBatchTranslate(
+  batchLines: Array<{ id: string; text: string }>,
+  settings: TranslationSettings,
+  url: string,
+  headers: Record<string, string>,
+  provider: "openai" | "anthropic",
+  resolvedModel: string,
+  isMimo: boolean,
+  previousContext?: string[],
+  nextContext?: string[]
+): Promise<Map<string, string>> {
+  try {
+    // Try to translate the entire batch
+    const result = await translateBatchWithRetry(
+      batchLines,
+      settings,
+      url,
+      headers,
+      provider,
+      resolvedModel,
+      isMimo,
+      previousContext,
+      nextContext
+    );
+    return result;
+  } catch (err) {
+    // Batch translation failed on both attempts. Trigger recursive binary splitting.
+    if (batchLines.length <= 1) {
+      console.warn(`[AI Translation] Single line ${batchLines[0]?.id} failed completely. Falling back to original.`);
+      const fallbackMap = new Map<string, string>();
+      if (batchLines[0]) {
+        fallbackMap.set(batchLines[0].id, repairWithGlossary(batchLines[0].text, settings.glossary));
+      }
+      return fallbackMap;
+    }
+
+    const mid = Math.floor(batchLines.length / 2);
+    const leftBatch = batchLines.slice(0, mid);
+    const rightBatch = batchLines.slice(mid);
+
+    console.warn(`[AI Translation] Batch of size ${batchLines.length} failed. Recursively splitting into sizes ${leftBatch.length} and ${rightBatch.length}...`);
+
+    // Recursively translate left split
+    const leftMap = await recursiveBatchTranslate(
+      leftBatch,
+      settings,
+      url,
+      headers,
+      provider,
+      resolvedModel,
+      isMimo,
+      previousContext,
+      nextContext
+    );
+
+    // Context-Aware Window: Feed successful left-split translations into the previous context of the right-split
+    const updatedPreviousContext = [
+      ...(previousContext || []),
+      ...leftBatch.map(line => leftMap.get(line.id) || line.text)
+    ].slice(-5);
+
+    // Recursively translate right split
+    const rightMap = await recursiveBatchTranslate(
+      rightBatch,
+      settings,
+      url,
+      headers,
+      provider,
+      resolvedModel,
+      isMimo,
+      updatedPreviousContext,
+      nextContext
+    );
+
+    // Merge and return maps
+    return new Map<string, string>([...leftMap, ...rightMap]);
+  }
+}
+
+export async function sanitizeBatchWithRetry(
+  batchLines: Array<{ id: string; text: string }>,
+  settings: TranslationSettings,
+  url: string,
+  headers: Record<string, string>,
+  provider: "openai" | "anthropic",
+  resolvedModel: string,
+  isMimo: boolean,
+  previousContext?: string[],
+  nextContext?: string[]
+): Promise<Map<string, string>> {
+  const parseResponse = (raw: string) => {
+    let text = raw.trim();
+    let arr: any[] = [];
+    
+    // Attempt 1: Match a JSON array [ ... ]
+    const arrayMatch = text.match(/\[[\s\S]*\]/);
+    if (arrayMatch) {
+      try {
+        arr = JSON.parse(arrayMatch[0]);
+      } catch (e) {}
+    }
+    
+    // Attempt 2: Direct JSON parse
+    if (!Array.isArray(arr) || arr.length === 0) {
+      try {
+        const parsed = JSON.parse(text);
+        if (Array.isArray(parsed)) {
+          arr = parsed;
+        }
+      } catch (e) {}
+    }
+
+    if (!Array.isArray(arr) || arr.length === 0) {
+      throw new Error("Failed to extract a valid sanitization array from AI response: " + text.slice(0, 150));
+    }
+
+    // Normalize array size to match exactly the batchLines length
+    const resultArr: string[] = [];
+    for (let i = 0; i < batchLines.length; i++) {
+      if (arr[i] !== undefined && arr[i] !== null) {
+        resultArr.push(String(arr[i]).trim());
+      } else {
+        resultArr.push(batchLines[i].text); // Fallback to original text if missing
+      }
+    }
+
+    const map = new Map<string, string>();
+    for (let i = 0; i < batchLines.length; i++) {
+      map.set(batchLines[i].id, resultArr[i]);
+    }
+    return map;
+  };
+
+  const callAIOnce = async (userPrompt: string, systemPrompt: string, temperature: number) => {
+    const requestBody = buildRequestBody(
+      userPrompt,
+      systemPrompt,
+      resolvedModel,
+      provider,
+      isMimo,
+      batchLines.length,
+      temperature
+    );
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(requestBody)
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`HTTP ${response.status}: ${errText}`);
+    }
+    const json = await response.json();
+
+    const finishReason = json.choices?.[0]?.finish_reason;
+    if (finishReason === 'content_filter') {
+      const filterMsg = json.choices?.[0]?.message?.content ?? 'Content filtered';
+      throw new Error(`CONTENT_FILTER: ${filterMsg}`);
+    }
+
+    const rawContent = provider === 'openai'
+      ? (json.choices?.[0]?.message?.content ?? '')
+      : (json.content?.[0]?.text ?? '');
+
+    return parseResponse(rawContent);
+  };
+
+  const userMessage = formatUserMessage(batchLines, previousContext, nextContext);
+  const targetTemp = settings.temperature !== undefined ? Math.max(0.3, settings.temperature) : 0.5;
+
+  try {
+    console.log(`[AI Sanitization] (temp ${targetTemp}) for ${batchLines.length} lines...`);
+    const systemPrompt = buildSanitizationPrompt(settings);
+    const batchMap = await callAIOnce(userMessage, systemPrompt, targetTemp);
+    if (batchMap.size === batchLines.length) {
+      return batchMap;
+    }
+    throw new Error(`Count mismatch: expected ${batchLines.length}, got ${batchMap.size}`);
+  } catch (err) {
+    console.warn(`[AI Sanitization] failed with error:`, err);
+    throw err; // Trigger recursive splitting in parent call
+  }
+}
+
+export async function recursiveBatchSanitize(
+  batchLines: Array<{ id: string; text: string }>,
+  settings: TranslationSettings,
+  url: string,
+  headers: Record<string, string>,
+  provider: "openai" | "anthropic",
+  resolvedModel: string,
+  isMimo: boolean,
+  previousContext?: string[],
+  nextContext?: string[]
+): Promise<Map<string, string>> {
+  try {
+    const result = await sanitizeBatchWithRetry(
+      batchLines,
+      settings,
+      url,
+      headers,
+      provider,
+      resolvedModel,
+      isMimo,
+      previousContext,
+      nextContext
+    );
+    return result;
+  } catch (err) {
+    if (batchLines.length <= 1) {
+      console.warn(`[AI Sanitization] Single line ${batchLines[0]?.id} failed completely. Falling back to original.`);
+      const fallbackMap = new Map<string, string>();
+      if (batchLines[0]) {
+        fallbackMap.set(batchLines[0].id, batchLines[0].text);
+      }
+      return fallbackMap;
+    }
+
+    const mid = Math.floor(batchLines.length / 2);
+    const leftBatch = batchLines.slice(0, mid);
+    const rightBatch = batchLines.slice(mid);
+
+    console.warn(`[AI Sanitization] Batch of size ${batchLines.length} failed. Recursively splitting into sizes ${leftBatch.length} and ${rightBatch.length}...`);
+
+    const leftMap = await recursiveBatchSanitize(
+      leftBatch,
+      settings,
+      url,
+      headers,
+      provider,
+      resolvedModel,
+      isMimo,
+      previousContext,
+      nextContext
+    );
+
+    const updatedPreviousContext = [
+      ...(previousContext || []),
+      ...leftBatch.map(line => leftMap.get(line.id) || line.text)
+    ].slice(-5);
+
+    const rightMap = await recursiveBatchSanitize(
+      rightBatch,
+      settings,
+      url,
+      headers,
+      provider,
+      resolvedModel,
+      isMimo,
+      updatedPreviousContext,
+      nextContext
+    );
+
+    return new Map<string, string>([...leftMap, ...rightMap]);
+  }
+}
+
 export interface CloudflareWhisperWord {
   word: string;
   start: number;
@@ -41,6 +789,8 @@ export interface TranscriptionConfig {
     videoContext?: string;
     customBaseUrl?: string;
     customModel?: string;
+    glossary?: Record<string, string>;
+    temperature?: number;
   };
 }
 
@@ -93,6 +843,23 @@ export class TranscriptionService {
       });
 
       let subtitles = this.convertToSubtitles(whisperResponse, clip);
+
+      // Run raw Chinese Data Sanitization before translation
+      const isChinese = this.config.language === 'zh' || 
+                        (whisperResponse.words && whisperResponse.words.length > 0 && /[\u3400-\u9FFF]/.test(whisperResponse.words[0].word));
+      
+      if (isChinese && this.config.aiConfig?.apiKey) {
+        onProgress?.({
+          phase: "processing",
+          progress: 91,
+          message: "Sanitizing raw transcription text using AI...",
+        });
+        try {
+          subtitles = await this.sanitizeSubtitlesWithAI(subtitles);
+        } catch (err) {
+          console.warn("[TranscriptionService] Data sanitization failed, proceeding with raw subtitles:", err);
+        }
+      }
 
       if (this.config.targetLanguage) {
         onProgress?.({
@@ -190,12 +957,18 @@ export class TranscriptionService {
           }
 
           // 2. Add translated subtitle as a separate distinct element
-          resultList.push({
+          const translatedSub: Subtitle = {
             ...subtitle,
             id: `${subtitle.id}-translated`,
             text: translatedText,
             words,
-          });
+          };
+          if (words && words.length > 0) {
+            const segmentedSubs = this.segmentTranslatedSubtitle(translatedSub);
+            resultList.push(...segmentedSubs);
+          } else {
+            resultList.push(translatedSub);
+          }
         }
       } catch (err) {
         console.error("Failed to translate subtitle segment:", err);
@@ -217,11 +990,35 @@ export class TranscriptionService {
     const tone = aiConfig.tone || "natural and fluent";
     const provider = aiConfig.provider;
 
-    // Filter subtitles that have text
-    const textSubtitles = subtitles.filter(s => s.text && s.text.trim().length > 0);
-    if (textSubtitles.length === 0) return subtitles;
+    const getLanguageName = (code?: string): string => {
+      if (!code || code === 'none') return 'Auto-detect';
+      const langMap: Record<string, string> = {
+        en: 'English',
+        vi: 'Vietnamese',
+        es: 'Spanish',
+        fr: 'French',
+        de: 'German',
+        it: 'Italian',
+        pt: 'Portuguese',
+        ja: 'Japanese',
+        ko: 'Korean',
+        zh: 'Chinese',
+        ru: 'Russian',
+        ar: 'Arabic',
+        hi: 'Hindi',
+        th: 'Thai',
+      };
+      return langMap[code.toLowerCase()] || code;
+    };
 
-    // ─── Proxy URL & headers ─────────────────────────────────────────────
+    const srcLang = getLanguageName(this.config.language);
+    const tgtLang = getLanguageName(targetLanguage);
+    const topic = aiConfig.videoContext?.trim() || "N/A";
+
+    const bestSubtitles = chooseBestSourceBlock(subtitles, srcLang);
+    const textSubtitles = bestSubtitles.filter(s => s.text && s.text.trim().length > 0);
+    if (textSubtitles.length === 0) return bestSubtitles;
+
     const url = `/api/proxy/${provider}${provider === 'openai' ? '/chat/completions' : '/messages'}`;
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -231,14 +1028,14 @@ export class TranscriptionService {
       headers['x-proxy-base-url'] = aiConfig.customBaseUrl.trim().replace(/\/$/, "");
     }
 
-    // ─── Model resolution ─────────────────────────────────────────────────
-    const isMimo = !!(aiConfig.customBaseUrl && aiConfig.customBaseUrl.includes('xiaomimimo.com'));
-    const VALID_MIMO_MODELS = ['mimo-v2.5-pro', 'mimo-v2.5', 'mimo-v2-pro', 'mimo-v2-omni', 'mimo-v2-flash'];
-    let resolvedModel: string;
+    const isMimo = !!(
+      (aiConfig.customBaseUrl && aiConfig.customBaseUrl.includes('xiaomimimo.com')) ||
+      (aiConfig.customModel && aiConfig.customModel.toLowerCase().includes('mimo'))
+    );
+    let resolvedModel;
     if (provider === 'openai') {
       if (isMimo) {
-        const cm = (aiConfig.customModel?.trim() ?? '').toLowerCase();
-        resolvedModel = VALID_MIMO_MODELS.includes(cm) ? cm : 'mimo-v2.5-pro';
+        resolvedModel = aiConfig.customModel?.trim() ? aiConfig.customModel.trim() : 'mimo-v2.5';
       } else {
         resolvedModel = aiConfig.customModel ? aiConfig.customModel.trim() : 'gpt-4o-mini';
       }
@@ -246,122 +1043,17 @@ export class TranscriptionService {
       resolvedModel = aiConfig.customModel ? aiConfig.customModel.trim() : 'claude-3-5-haiku-20241022';
     }
 
-    const contextPrompt = aiConfig.videoContext
-      ? `Additional Context/Topic of the video: ${aiConfig.videoContext}\n`
-      : "";
-
-    const systemPrompt = `You are an expert video subtitle translator. Your task is to translate subtitles into ${targetLanguage} accurately and naturally.
-${contextPrompt}
-Guidelines:
-1. DO NOT translate word-by-word. Focus on capturing the true meaning, context, and conversational flow of the entire sequence.
-2. You will be provided with 'context_before' and 'context_after' strings. Use these ONLY to understand the situation. DO NOT translate them.
-3. You must translate ONLY the objects inside the 'to_translate' array.
-4. Keep translations concise enough to be read comfortably as video subtitles. Prioritize natural grammar and phrasing over matching the exact word count.
-5. Do not mix languages. The final translation must be entirely and naturally written in ${targetLanguage}.
-6. Tone: ${tone}.
-
-IMPORTANT: You MUST respond ONLY with a JSON object in this exact format:
-{
-  "translations": [
-    { "id": "the-original-id", "text": "translated text here" }
-  ]
-}
-Do not include any markdown (like \`\`\`json) or conversational filler. Return ONLY valid JSON.`;
-
-    // ─── Helper: build request body ───────────────────────────────────────
-    const buildRequestBody = (batchPayload: any) => {
-      if (provider === 'openai') {
-        const body: any = {
-          model: resolvedModel,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: JSON.stringify(batchPayload) }
-          ],
-          temperature: 0.3
-        };
-        if (!isMimo) body.response_format = { type: "json_object" };
-        return body;
-      }
-      return {
-        model: resolvedModel,
-        max_tokens: 4000,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: JSON.stringify(batchPayload) }],
-        temperature: 0.3
-      };
+    const settings: TranslationSettings = {
+      sourceLanguage: srcLang,
+      targetLanguage: tgtLang,
+      tone,
+      topic,
+      glossary: aiConfig.glossary,
+      temperature: aiConfig.temperature,
     };
 
-    // ─── Helper: parse AI response robustly ──────────────────────────────
-    const parseResponse = (raw: string): Map<string, string> => {
-      let text = raw.trim();
-      // Strip markdown code fences if present
-      if (text.startsWith('```')) {
-        const first = text.indexOf('\n');
-        const last = text.lastIndexOf('```');
-        if (first !== -1 && last > first) text = text.substring(first + 1, last).trim();
-      }
-      const parsed = JSON.parse(text);
-      const arr: Array<{ id: string; text: string }> = parsed.translations || [];
-      const map = new Map<string, string>();
-      for (const t of arr) {
-        if (t.id && t.text) map.set(t.id, t.text);
-      }
-      return map;
-    };
-
-    // ─── Custom error for non-retryable failures ──────────────────────────
-    class ContentFilterError extends Error {
-      constructor(msg: string) { super(msg); this.name = 'ContentFilterError'; }
-    }
-
-    // ─── Helper: call AI with retry (exponential back-off) ───────────────
-    const callWithRetry = async (
-      batchPayload: any,
-      maxRetries = 3
-    ): Promise<Map<string, string>> => {
-      let lastError: unknown;
-      for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        try {
-          const response = await fetch(url, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(buildRequestBody(batchPayload))
-          });
-          if (!response.ok) {
-            const errText = await response.text();
-            throw new Error(`HTTP ${response.status}: ${errText}`);
-          }
-          const json = await response.json();
-
-          // ── Detect content_filter (HTTP 200 but content rejected) ──────
-          const finishReason = json.choices?.[0]?.finish_reason;
-          if (finishReason === 'content_filter') {
-            const filterMsg = json.choices?.[0]?.message?.content ?? 'Content filtered';
-            console.warn(`[AI Translation] Batch blocked by content filter: "${filterMsg}". Skipping retries, will use original text.`);
-            throw new ContentFilterError(filterMsg);
-          }
-
-          const rawContent = provider === 'openai'
-            ? (json.choices?.[0]?.message?.content ?? '')
-            : (json.content?.[0]?.text ?? '');
-          return parseResponse(rawContent);
-        } catch (err) {
-          lastError = err;
-          // Content filter — no point retrying, bail out immediately
-          if (err instanceof ContentFilterError) throw err;
-          console.warn(`[AI Translation] Attempt ${attempt}/${maxRetries} failed:`, err);
-          if (attempt < maxRetries) {
-            await new Promise(r => setTimeout(r, attempt * 1000));
-          }
-        }
-      }
-      throw lastError;
-    };
-
-
-    // ─── Batch processing with context window ─────────────────────────────
-    const BATCH_SIZE = 30;
-    const CONTEXT_WINDOW = 15;
+    const BATCH_SIZE = 20;
+    const CONTEXT_WINDOW = 5;
     const globalTranslationMap = new Map<string, string>();
 
     for (let i = 0; i < textSubtitles.length; i += BATCH_SIZE) {
@@ -375,65 +1067,272 @@ Do not include any markdown (like \`\`\`json) or conversational filler. Return O
         .slice(i + BATCH_SIZE, Math.min(textSubtitles.length, i + BATCH_SIZE + CONTEXT_WINDOW))
         .map(s => s.text);
 
-      const batchPayload = {
-        context_before: prevLines.length > 0 ? prevLines.join(" ") : undefined,
-        to_translate: batchLines.map(s => ({
-          id: s.id,
-          text: s.text
-        })),
-        context_after: nextLines.length > 0 ? nextLines.join(" ") : undefined,
-      };
-
       try {
-        const batchMap = await callWithRetry(batchPayload, 3);
-        for (const [id, text] of batchMap) globalTranslationMap.set(id, text);
+        const batchMap = await recursiveBatchTranslate(
+          batchLines.map(s => ({ id: s.id, text: s.text })),
+          settings,
+          url,
+          headers,
+          provider,
+          resolvedModel,
+          isMimo,
+          prevLines,
+          nextLines
+        );
+        for (const [id, text] of batchMap) {
+          globalTranslationMap.set(id, text);
+        }
         console.log(`[AI Translation] Batch ${Math.floor(i / BATCH_SIZE) + 1}: OK (${batchMap.size}/${batchLines.length})`);
       } catch (err) {
-        // Content filter → dừng hẳn, báo lỗi rõ ràng
-        if (err instanceof ContentFilterError) {
-          throw new Error(
-            `Dịch phụ đề bị chặn bởi bộ lọc nội dung của AI (content_filter).\n` +
-            `Lý do: "${err.message}".\n` +
-            `Nội dung video có thể chứa chủ đề nhạy cảm mà provider AI từ chối xử lý. ` +
-            `Hãy thử đổi sang provider khác (OpenAI / Anthropic) hoặc dịch thủ công đoạn bị lọc.`
-          );
+        console.error(`[AI Translation] Batch ${Math.floor(i / BATCH_SIZE) + 1} failed completely:`, err);
+        for (const s of batchLines) {
+          globalTranslationMap.set(s.id, repairWithGlossary(s.text, settings.glossary));
         }
-        // Lỗi khác (network, timeout, parse) → fallback giữ text gốc cho batch này
-        console.error(`[AI Translation] Batch ${Math.floor(i / BATCH_SIZE) + 1} failed after 3 retries — using original text:`, err);
-        for (const s of batchLines) globalTranslationMap.set(s.id, s.text);
       }
     }
 
-    // ─── Assemble final result ────────────────────────────────────────────
     const resultList: Subtitle[] = [];
-    for (const subtitle of subtitles) {
+    for (const subtitle of bestSubtitles) {
       resultList.push(subtitle);
       if (!subtitle.text) continue;
 
       const translatedText = globalTranslationMap.get(subtitle.id);
-      if (translatedText && translatedText !== subtitle.text) {
+      if (translatedText) {
         const duration = subtitle.endTime - subtitle.startTime;
         const translatedWords = translatedText.split(/\s+/);
         const numWords = translatedWords.length;
         const wordDuration = numWords > 0 ? duration / numWords : 0;
         const words = numWords > 0
-          ? translatedWords.map((w, idx) => ({
+          ? translatedWords.map((w: string, idx: number) => ({
               text: w,
               startTime: subtitle.startTime + idx * wordDuration,
               endTime: subtitle.startTime + (idx + 1) * wordDuration,
             }))
           : undefined;
 
-        resultList.push({
+        const translatedSub: Subtitle = {
           ...subtitle,
           id: `${subtitle.id}-translated`,
           text: translatedText,
           words,
-        });
+        };
+        if (words && words.length > 0) {
+          const segmentedSubs = this.segmentTranslatedSubtitle(translatedSub);
+          resultList.push(...segmentedSubs);
+        } else {
+          resultList.push(translatedSub);
+        }
       }
     }
 
     return resultList;
+  }
+
+  private async sanitizeSubtitlesWithAI(
+    subtitles: Subtitle[]
+  ): Promise<Subtitle[]> {
+    const aiConfig = this.config.aiConfig;
+    if (!aiConfig || !aiConfig.apiKey) {
+      throw new Error("Missing AI configuration or API Key");
+    }
+
+    const tone = aiConfig.tone || "natural and fluent";
+    const provider = aiConfig.provider;
+
+    const getLanguageName = (code?: string): string => {
+      if (!code || code === 'none') return 'Auto-detect';
+      const langMap: Record<string, string> = {
+        en: 'English',
+        vi: 'Vietnamese',
+        es: 'Spanish',
+        fr: 'French',
+        de: 'German',
+        it: 'Italian',
+        pt: 'Portuguese',
+        ja: 'Japanese',
+        ko: 'Korean',
+        zh: 'Chinese',
+        ru: 'Russian',
+        ar: 'Arabic',
+        hi: 'Hindi',
+        th: 'Thai',
+      };
+      return langMap[code.toLowerCase()] || code;
+    };
+
+    const srcLang = getLanguageName(this.config.language);
+    const topic = aiConfig.videoContext?.trim() || "N/A";
+
+    const textSubtitles = subtitles.filter(s => s.text && s.text.trim().length > 0);
+    if (textSubtitles.length === 0) return subtitles;
+
+    const url = `/api/proxy/${provider}${provider === 'openai' ? '/chat/completions' : '/messages'}`;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'x-proxy-api-key': aiConfig.apiKey
+    };
+    if (aiConfig.customBaseUrl) {
+      headers['x-proxy-base-url'] = aiConfig.customBaseUrl.trim().replace(/\/$/, "");
+    }
+
+    const isMimo = !!(
+      (aiConfig.customBaseUrl && aiConfig.customBaseUrl.includes('xiaomimimo.com')) ||
+      (aiConfig.customModel && aiConfig.customModel.toLowerCase().includes('mimo'))
+    );
+    let resolvedModel;
+    if (provider === 'openai') {
+      if (isMimo) {
+        resolvedModel = aiConfig.customModel?.trim() ? aiConfig.customModel.trim() : 'mimo-v2.5';
+      } else {
+        resolvedModel = aiConfig.customModel ? aiConfig.customModel.trim() : 'gpt-4o-mini';
+      }
+    } else {
+      resolvedModel = aiConfig.customModel ? aiConfig.customModel.trim() : 'claude-3-5-haiku-20241022';
+    }
+
+    const settings: TranslationSettings = {
+      sourceLanguage: srcLang,
+      targetLanguage: srcLang,
+      tone,
+      topic,
+      glossary: aiConfig.glossary,
+      temperature: aiConfig.temperature,
+    };
+
+    const BATCH_SIZE = 20;
+    const CONTEXT_WINDOW = 5;
+    const globalSanitizeMap = new Map<string, string>();
+
+    for (let i = 0; i < textSubtitles.length; i += BATCH_SIZE) {
+      const batchLines = textSubtitles.slice(i, i + BATCH_SIZE);
+
+      const prevLines = textSubtitles
+        .slice(Math.max(0, i - CONTEXT_WINDOW), i)
+        .map(s => s.text);
+
+      const nextLines = textSubtitles
+        .slice(i + BATCH_SIZE, Math.min(textSubtitles.length, i + BATCH_SIZE + CONTEXT_WINDOW))
+        .map(s => s.text);
+
+      try {
+        const batchMap = await recursiveBatchSanitize(
+          batchLines.map(s => ({ id: s.id, text: s.text })),
+          settings,
+          url,
+          headers,
+          provider,
+          resolvedModel,
+          isMimo,
+          prevLines,
+          nextLines
+        );
+        for (const [id, text] of batchMap) {
+          globalSanitizeMap.set(id, text);
+        }
+        console.log(`[AI Sanitization] Batch ${Math.floor(i / BATCH_SIZE) + 1}: OK (${batchMap.size}/${batchLines.length})`);
+      } catch (err) {
+        console.error(`[AI Sanitization] Batch ${Math.floor(i / BATCH_SIZE) + 1} failed:`, err);
+        for (const s of batchLines) {
+          globalSanitizeMap.set(s.id, s.text);
+        }
+      }
+    }
+
+    const resultList: Subtitle[] = [];
+    for (const subtitle of subtitles) {
+      if (!subtitle.text) {
+        resultList.push(subtitle);
+        continue;
+      }
+
+      const sanitizedText = globalSanitizeMap.get(subtitle.id);
+      if (sanitizedText && sanitizedText !== subtitle.text) {
+        const duration = subtitle.endTime - subtitle.startTime;
+        const isChineseOrJapanese = this.config.language === 'zh' || this.config.language === 'ja' || 
+                                    (sanitizedText.length > 0 && /[\u3400-\u9FFF]/.test(sanitizedText[0]));
+        
+        const wordsArr = isChineseOrJapanese ? Array.from(sanitizedText) : sanitizedText.split(/\s+/);
+        const numWords = wordsArr.length;
+        const wordDuration = numWords > 0 ? duration / numWords : 0;
+        
+        const words = numWords > 0
+          ? wordsArr.map((w, idx) => ({
+              word: w,
+              start: idx * wordDuration,
+              end: (idx + 1) * wordDuration,
+            }))
+          : undefined;
+
+        resultList.push({
+          ...subtitle,
+          text: sanitizedText,
+          words: words ? words.map(w => ({ text: w.word, startTime: subtitle.startTime + w.start, endTime: subtitle.startTime + w.end })) : undefined
+        });
+      } else {
+        resultList.push(subtitle);
+      }
+    }
+
+    return resultList;
+  }
+
+  private segmentTranslatedSubtitle(
+    translatedSub: Subtitle
+  ): Subtitle[] {
+    if (!translatedSub.words || translatedSub.words.length === 0) {
+      return [translatedSub];
+    }
+
+    const maxWords = 8;
+    const maxDuration = 3;
+
+    const totalWords = translatedSub.words.length;
+    const totalDuration = translatedSub.endTime - translatedSub.startTime;
+
+    if (totalWords <= maxWords && totalDuration <= maxDuration) {
+      return [translatedSub];
+    }
+
+    const segments: Subtitle[] = [];
+    let currentWords: Array<{ text: string; startTime: number; endTime: number }> = [];
+    let groupStart = translatedSub.words[0].startTime;
+
+    for (const w of translatedSub.words) {
+      if (currentWords.length === 0) {
+        groupStart = w.startTime;
+      }
+
+      const wouldExceedWords = currentWords.length >= maxWords;
+      const wouldExceedDuration = w.endTime - groupStart > maxDuration;
+
+      if ((wouldExceedWords || wouldExceedDuration) && currentWords.length > 0) {
+        segments.push({
+          ...translatedSub,
+          id: `${translatedSub.id}-part-${segments.length}`,
+          text: currentWords.map(cw => cw.text).join(" "),
+          startTime: currentWords[0].startTime,
+          endTime: currentWords[currentWords.length - 1].endTime,
+          words: currentWords,
+        });
+        currentWords = [w];
+        groupStart = w.startTime;
+      } else {
+        currentWords.push(w);
+      }
+    }
+
+    if (currentWords.length > 0) {
+      segments.push({
+        ...translatedSub,
+        id: `${translatedSub.id}-part-${segments.length}`,
+        text: currentWords.map(cw => cw.text).join(" "),
+        startTime: currentWords[0].startTime,
+        endTime: currentWords[currentWords.length - 1].endTime,
+        words: currentWords,
+      });
+    }
+
+    return segments;
   }
 
   private async extractAudioFromClip(
@@ -661,7 +1560,72 @@ Do not include any markdown (like \`\`\`json) or conversational filler. Return O
       ];
     }
 
+    if (response.text && response.text.trim().length > 0) {
+      const isChineseOrJapanese = this.config.language === 'zh' || this.config.language === 'ja' || 
+                                  (response.words.length > 0 && /[\u3400-\u9FFF]/.test(response.words[0].word));
+      if (isChineseOrJapanese) {
+        try {
+          console.log("[TranscriptionService] Using natural clause grouping for Chinese/Japanese text...");
+          return this.groupWordsIntoSubtitlesByNaturalClauses(response.text, response.words, clip.startTime);
+        } catch (err) {
+          console.warn("[TranscriptionService] Natural clause grouping failed, falling back to standard grouping:", err);
+        }
+      }
+    }
+
     return this.groupWordsIntoSubtitles(response.words, clip.startTime);
+  }
+
+  private groupWordsIntoSubtitlesByNaturalClauses(
+    text: string,
+    words: CloudflareWhisperWord[],
+    clipStartTime: number
+  ): Subtitle[] {
+    const subtitles: Subtitle[] = [];
+    const maxDuration = this.config.maxSegmentDuration || 5;
+    
+    // Split natural segments by whitespace
+    const clauses = text.split(/\s+/).filter(c => c.trim().length > 0);
+    let wordIndex = 0;
+
+    for (const clause of clauses) {
+      const clauseWords: CloudflareWhisperWord[] = [];
+      let accumulatedLength = 0;
+      const targetLength = clause.length;
+      
+      // Match words by character length accumulation
+      while (accumulatedLength < targetLength && wordIndex < words.length) {
+        const w = words[wordIndex];
+        clauseWords.push(w);
+        accumulatedLength += w.word.length;
+        wordIndex++;
+      }
+
+      if (clauseWords.length === 0) continue;
+
+      const duration = clauseWords[clauseWords.length - 1].end - clauseWords[0].start;
+
+      // Split mechanically if the natural clause is too long
+      if (duration > maxDuration) {
+        const mid = Math.floor(clauseWords.length / 2);
+        if (mid > 0) {
+          subtitles.push(this.createSubtitleFromWords(clauseWords.slice(0, mid), clipStartTime));
+          subtitles.push(this.createSubtitleFromWords(clauseWords.slice(mid), clipStartTime));
+        } else {
+          subtitles.push(this.createSubtitleFromWords(clauseWords, clipStartTime));
+        }
+      } else {
+        subtitles.push(this.createSubtitleFromWords(clauseWords, clipStartTime));
+      }
+    }
+
+    // Safely capture any leftover words
+    if (wordIndex < words.length) {
+      const remainingWords = words.slice(wordIndex);
+      subtitles.push(this.createSubtitleFromWords(remainingWords, clipStartTime));
+    }
+
+    return subtitles;
   }
 
   private groupWordsIntoSubtitles(
@@ -716,9 +1680,11 @@ Do not include any markdown (like \`\`\`json) or conversational filler. Return O
     words: CloudflareWhisperWord[],
     clipStartTime: number,
   ): Subtitle {
+    const isChineseOrJapanese = this.config.language === 'zh' || this.config.language === 'ja' || 
+                                (words.length > 0 && /[\u3400-\u9FFF]/.test(words[0].word));
     const text = words
       .map((w) => w.word)
-      .join(" ")
+      .join(isChineseOrJapanese ? "" : " ")
       .trim();
     const startTime = clipStartTime + words[0].start;
     const endTime = clipStartTime + words[words.length - 1].end;

@@ -25,9 +25,7 @@ export const RecentProjects: React.FC<RecentProjectsProps> = ({
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadingProjectId, setLoadingProjectId] = useState<string | null>(null);
-  const recoverFromAutoSave = useProjectStore(
-    (state) => state.recoverFromAutoSave,
-  );
+  const { project, createNewProject, recoverFromAutoSave } = useProjectStore();
   const { track } = useAnalytics();
 
   useEffect(() => {
@@ -140,12 +138,15 @@ export const RecentProjects: React.FC<RecentProjectsProps> = ({
 
       try {
         await autoSaveManager.deleteProjectSaves(projectId);
+        if (projectId === project.id) {
+          createNewProject();
+        }
         setRecentProjects((prev) => prev.filter((p) => p.id !== projectId));
       } catch (error) {
         console.error("Failed to delete project saves:", error);
       }
     },
-    [],
+    [project.id, createNewProject],
   );
 
   const formatDate = (timestamp: number): string => {

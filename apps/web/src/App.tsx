@@ -38,7 +38,7 @@ const PRESET_DIMENSIONS: Record<string, SocialMediaCategory> = {
 };
 
 function App() {
-  const { activeModal, closeModal, skipWelcomeScreen } = useUIStore();
+  const { activeModal, closeModal } = useUIStore();
   const { openModal: openSearchModal } = useUIStore();
   const createNewProject = useProjectStore((state) => state.createNewProject);
   const { showDialog, availableSaves, recover, dismiss, clearAll } = useProjectRecovery();
@@ -92,8 +92,6 @@ function App() {
 
       createNewProject(projectName, { width, height, frameRate });
       navigate("editor");
-    } else if (route === "editor" && skipWelcomeScreen) {
-      hasHandledInitialRoute.current = true;
     } else if (["welcome", "templates", "recent"].includes(route)) {
       hasHandledInitialRoute.current = true;
     }
@@ -104,20 +102,16 @@ function App() {
     fps,
     createNewProject,
     navigate,
-    skipWelcomeScreen,
   ]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (e.key === "Escape" && route !== "editor") {
-        navigate("editor");
-      }
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         openSearchModal("search");
       }
     },
-    [route, navigate, openSearchModal],
+    [openSearchModal],
   );
 
   useEffect(() => {
@@ -126,7 +120,7 @@ function App() {
   }, [handleKeyDown]);
 
   const showWelcome =
-    ["welcome", "templates", "recent"].includes(route) && !skipWelcomeScreen;
+    ["welcome", "templates", "recent"].includes(route);
   const initialTab =
     route === "templates"
       ? "templates"
