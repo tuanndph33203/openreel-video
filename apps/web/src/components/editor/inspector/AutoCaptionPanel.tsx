@@ -19,6 +19,7 @@ import {
   type WhisperTranscriptionProgress,
   CAPTION_ANIMATION_STYLES,
   getAnimationStyleDisplayName,
+  type Subtitle,
 } from "@openreel/core";
 import { useProjectStore } from "../../../stores/project-store";
 import { parseSRT } from "../../../stores/project/subtitle-helpers";

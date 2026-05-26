@@ -356,10 +356,14 @@ export class ExportEngine {
       });
       const output = new Output({ format: outputFormat, target });
 
+      console.log("[ExportEngine] Finding supported video codec...");
+      console.time("[ExportEngine] getFirstEncodableVideoCodec");
       const videoCodec = await getFirstEncodableVideoCodec(
         outputFormat.getSupportedVideoCodecs(),
         { width: fullSettings.width, height: fullSettings.height },
       );
+      console.timeEnd("[ExportEngine] getFirstEncodableVideoCodec");
+      console.log(`[ExportEngine] Selected video codec: ${videoCodec}`);
 
       if (!videoCodec) {
         throw this.createError(
@@ -369,18 +373,22 @@ export class ExportEngine {
         );
       }
 
+      console.log("[ExportEngine] Finding supported audio codec...");
+      console.time("[ExportEngine] findSupportedAudioCodec");
       const audioCodecResult = await this.findSupportedAudioCodec(
         outputFormat,
         fullSettings.audioSettings,
         getFirstEncodableAudioCodec,
       );
+      console.timeEnd("[ExportEngine] findSupportedAudioCodec");
+      console.log(`[ExportEngine] Selected audio codec: ${audioCodecResult.codec} at ${audioCodecResult.bitrate} bps`);
 
       const videoSource = new VideoSampleSource({
         codec: videoCodec,
         bitrate: fullSettings.bitrate ? fullSettings.bitrate * 1000 : QUALITY_MEDIUM,
         keyFrameInterval:
           fullSettings.keyframeInterval / fullSettings.frameRate,
-        hardwareAcceleration: "prefer-software",
+        hardwareAcceleration: "prefer-hardware",
       });
       const audioSource = new AudioBufferSource({
         codec: audioCodecResult.codec as "aac" | "opus" | "mp3",
@@ -393,15 +401,23 @@ export class ExportEngine {
         date: new Date(),
       });
 
+      console.log("[ExportEngine] Starting MediaBunny output...");
+      console.time("[ExportEngine] output.start");
       await output.start();
+      console.timeEnd("[ExportEngine] output.start");
 
+      console.log("[ExportEngine] Encoding timeline audio...");
+      console.time("[ExportEngine] encodeTimelineAudioToSource");
       try {
         await this.encodeTimelineAudioToSource(project, audioSource);
       } finally {
         this.audioEngine?.clearCache();
       }
       audioSource.close();
+      console.timeEnd("[ExportEngine] encodeTimelineAudioToSource");
 
+      console.log("[ExportEngine] Preparing video export decoders...");
+      console.time("[ExportEngine] createExportDecoder");
       const mediaEngine = getMediaEngine();
       const videoMediaIds: string[] = [];
       for (const track of project.timeline.tracks) {
@@ -413,15 +429,20 @@ export class ExportEngine {
           if (mediaItem?.blob && !videoMediaIds.includes(mediaItem.id)) {
             videoMediaIds.push(mediaItem.id);
             try {
+              console.log(`[ExportEngine] Creating decoder for video item: ${mediaItem.id}`);
               await mediaEngine.createExportDecoder(
                 mediaItem.id,
                 mediaItem.blob,
                 fullSettings.width,
               );
-            } catch {}
+            } catch (err) {
+              console.warn(`[ExportEngine] Failed to create decoder for video item: ${mediaItem.id}`, err);
+            }
           }
         }
       }
+      console.timeEnd("[ExportEngine] createExportDecoder");
+      console.log("[ExportEngine] Video export preparation completed! Starting rendering loop...");
 
       for (let frame = 0; frame < totalFrames; frame++) {
         if (this.abortController.signal.aborted) {
@@ -464,7 +485,7 @@ export class ExportEngine {
 
         this.currentExport!.framesRendered = frame + 1;
 
-        if ((frame + 1) % 5 === 0) {
+        if ((frame + 1) % 150 === 0) {
           this.videoEngine?.clearVideoElementCache();
           this.videoEngine?.clearCache();
           try {

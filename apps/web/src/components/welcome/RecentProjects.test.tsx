@@ -2,17 +2,30 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { RecentProjects } from "./RecentProjects";
 
-const mockCheckForRecovery = vi.fn();
-const mockRecoverFromAutoSave = vi.fn();
+const { mockCheckForRecovery, mockRecoverFromAutoSave } = vi.hoisted(() => ({
+  mockCheckForRecovery: vi.fn(),
+  mockRecoverFromAutoSave: vi.fn(),
+}));
 
 vi.mock("../../services/auto-save", () => ({
   checkForRecovery: () => mockCheckForRecovery(),
+  autoSaveManager: {
+    deleteProjectSaves: vi.fn().mockResolvedValue(undefined),
+    renameProjectSaves: vi.fn().mockResolvedValue(undefined),
+  },
 }));
 
-vi.mock("../../stores/project-store", () => ({
-  useProjectStore: (selector: (state: unknown) => unknown) =>
-    selector({ recoverFromAutoSave: mockRecoverFromAutoSave }),
-}));
+vi.mock("../../stores/project-store", () => {
+  const store = {
+    project: { id: "test-project" },
+    createNewProject: vi.fn(),
+    recoverFromAutoSave: mockRecoverFromAutoSave,
+  };
+  return {
+    useProjectStore: (selector?: (state: any) => any) =>
+      selector ? selector(store) : store,
+  };
+});
 
 describe("RecentProjects", () => {
   beforeEach(() => {
@@ -120,6 +133,7 @@ describe("RecentProjects", () => {
   });
 
   it("removes project from list when delete is clicked", async () => {
+    window.confirm = () => true;
     mockCheckForRecovery.mockResolvedValue([
       {
         id: "project-1-slot-0",
@@ -137,7 +151,7 @@ describe("RecentProjects", () => {
       expect(screen.getByText("Project to Remove")).toBeInTheDocument();
     });
 
-    const removeButton = screen.getByTitle("Remove from recent");
+    const removeButton = screen.getByTitle("Delete project");
     fireEvent.click(removeButton);
 
     await waitFor(() => {

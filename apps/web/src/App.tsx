@@ -15,6 +15,8 @@ import { useKieAIPoller } from "./hooks/useKieAIPoller";
 import { useWatchFolderAutoResume } from "./hooks/useWatchFolderAutoResume";
 import { SOCIAL_MEDIA_PRESETS, type SocialMediaCategory } from "@openreel/core";
 import { TooltipProvider } from "@openreel/ui";
+import { autoSaveManager } from "./services/auto-save";
+import { toast } from "./stores/notification-store";
 
 const EditorInterface = lazy(() =>
   import("./components/editor/EditorInterface").then((m) => ({
@@ -118,6 +120,39 @@ function App() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleKeyDown]);
+
+  // Alert user of failed auto-saves (e.g. browser storage full)
+  useEffect(() => {
+    const handleAutoSaveError = (data: any) => {
+      console.error("[AutoSave Error]:", data);
+      const detail = data?.error?.message || data?.message || "Lỗi chưa xác định";
+      toast.error(
+        "Tự động lưu thất bại!",
+        `Chi tiết: ${detail}. Dung lượng lưu trữ của trình duyệt có thể đã đầy hoặc lỗi cơ sở dữ liệu. Vui lòng tải file dự án (.oreel) thủ công để tránh mất dữ liệu.`
+      );
+    };
+
+    autoSaveManager.on("error", handleAutoSaveError);
+    return () => autoSaveManager.off("error", handleAutoSaveError);
+  }, []);
+
+  // Protect against accidental tab close / reload when project is dirty
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (autoSaveManager.getIsDirty()) {
+        e.preventDefault();
+        e.returnValue = "Bạn có thay đổi chưa lưu trong dự án. Bạn có chắc chắn muốn rời đi?";
+        
+        // Trigger an urgent background save
+        useProjectStore.getState().forceSave();
+        
+        return e.returnValue;
+      }
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, []);
 
   const showWelcome =
     ["welcome", "templates", "recent"].includes(route);

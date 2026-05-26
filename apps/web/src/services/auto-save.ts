@@ -25,6 +25,21 @@ interface AutoSaveRecord {
   data: string;
 }
 
+function serializeProject(project: any): string {
+  try {
+    return JSON.stringify(project, (key, value) => {
+      if (key === "blob") return undefined;
+      if (key === "fileHandle") return undefined;
+      if (value instanceof Blob || value instanceof File) return undefined;
+      if (typeof FileSystemHandle !== "undefined" && value instanceof FileSystemHandle) return undefined;
+      return value;
+    });
+  } catch (error) {
+    console.error("[AutoSave] Failed to serialize project using custom replacer, using fallback:", error);
+    return JSON.stringify(project);
+  }
+}
+
 const DEFAULT_CONFIG: AutoSaveConfig = {
   interval: 30000, // 30 seconds
   maxSlots: 3,
@@ -160,7 +175,11 @@ class AutoSaveManager {
       (!project.timeline || (
         project.timeline.tracks.length === 0 &&
         (!project.timeline.subtitles || project.timeline.subtitles.length === 0)
-      ));
+      )) &&
+      (!project.textClips || project.textClips.length === 0) &&
+      (!project.shapeClips || project.shapeClips.length === 0) &&
+      (!project.svgClips || project.svgClips.length === 0) &&
+      (!project.stickerClips || project.stickerClips.length === 0);
     if (isEmpty) {
       return;
     }
@@ -192,7 +211,7 @@ class AutoSaveManager {
       projectName: project.name,
       timestamp: Date.now(),
       slot: this.currentSlot,
-      data: JSON.stringify(project),
+      data: serializeProject(project),
     };
 
     await this.saveRecord(record);
@@ -229,7 +248,7 @@ class AutoSaveManager {
 
     const allSaves = await this.getAllSaves();
     const projectSaves = allSaves.filter(
-      (s) => s.projectId === currentProjectId,
+      (s) => s && s.projectId === currentProjectId,
     );
 
     if (projectSaves.length > this.config.maxSlots) {
@@ -285,12 +304,13 @@ class AutoSaveManager {
     try {
       const allSaves = await this.getAllSaves();
 
-      let saves = allSaves;
+      let saves = allSaves.filter((s) => s !== null && s !== undefined);
       if (projectId) {
-        saves = allSaves.filter((s) => s.projectId === projectId);
+        saves = saves.filter((s) => s && s.projectId === projectId);
       }
 
       const metadata: AutoSaveMetadata[] = saves
+        .filter((s) => s && s.id)
         .sort((a, b) => b.timestamp - a.timestamp)
         .map((s) => ({
           id: s.id,
@@ -361,7 +381,7 @@ class AutoSaveManager {
     if (!this.db) return;
 
     const allSaves = await this.getAllSaves();
-    const projectSaves = allSaves.filter((s) => s.projectId === projectId);
+    const projectSaves = allSaves.filter((s) => s && s.projectId === projectId);
 
     for (const save of projectSaves) {
       await this.deleteRecord(save.id);
@@ -413,6 +433,10 @@ class AutoSaveManager {
     return { ...this.config };
   }
 
+  getIsDirty(): boolean {
+    return this.isDirty;
+  }
+
   on(event: AutoSaveEventType, callback: AutoSaveEventCallback): void {
     if (!this.listeners.has(event)) {
       this.listeners.set(event, new Set());
@@ -450,7 +474,7 @@ class AutoSaveManager {
     if (!this.db) return;
     try {
       const allSaves = await this.getAllSaves();
-      const projectSaves = allSaves.filter((s) => s.projectId === projectId);
+      const projectSaves = allSaves.filter((s) => s && s.projectId === projectId);
       for (const save of projectSaves) {
         await this.deleteRecord(save.id);
       }
@@ -466,13 +490,13 @@ class AutoSaveManager {
     if (!this.db) return;
     try {
       const allSaves = await this.getAllSaves();
-      const projectSaves = allSaves.filter((s) => s.projectId === projectId);
+      const projectSaves = allSaves.filter((s) => s && s.projectId === projectId);
       for (const save of projectSaves) {
         save.projectName = newName;
         try {
           const project = JSON.parse(save.data) as any;
           project.name = newName;
-          save.data = JSON.stringify(project);
+          save.data = serializeProject(project);
         } catch (error) {
           console.error("Failed to update project name inside save data:", error);
         }
@@ -527,5 +551,9 @@ export async function deleteProjectSaves(projectId: string): Promise<void> {
 
 export async function renameProjectSaves(projectId: string, newName: string): Promise<void> {
   await autoSaveManager.renameProjectSaves(projectId, newName);
+}
+
+export function getIsAutoSaveDirty(): boolean {
+  return autoSaveManager.getIsDirty();
 }
 

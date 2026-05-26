@@ -114,7 +114,7 @@ export interface ProjectState {
   createNewProject: (
     name?: string,
     settings?: Partial<ProjectSettings>,
-  ) => void;
+  ) => Promise<void>;
   loadProject: (project: Project) => void;
   renameProject: (name: string) => Promise<ActionResult>;
   updateSettings: (settings: Partial<ProjectSettings>) => Promise<ActionResult>;
@@ -1575,9 +1575,14 @@ export const useProjectStore = create<ProjectState>()(
         name?: string,
         settings?: Partial<ProjectSettings>,
       ) => {
+        const oldProject = get().project;
+        // Asynchronously run force-save in the background
+        autoSaveManager.forceSave(oldProject).catch((err) => {
+          console.warn("Failed to auto-save current project before creating a new one:", err);
+        });
+
         const newHistory = new ActionHistory();
         const newExecutor = new ActionExecutor(newHistory);
-        const previousProject = get().project;
         const nextProject = createEmptyProject(name, settings);
 
         // Clear engine singletons to prevent caching subtitles or shapes from old projects
@@ -1591,8 +1596,8 @@ export const useProjectStore = create<ProjectState>()(
         }
         getGraphicsBridge().clear();
 
-        syncProjectEffectsBridge(nextProject, previousProject);
-        syncProjectTransitionsBridge(nextProject, previousProject);
+        syncProjectEffectsBridge(nextProject, oldProject);
+        syncProjectTransitionsBridge(nextProject, oldProject);
 
         set({
           project: nextProject,
@@ -1604,6 +1609,8 @@ export const useProjectStore = create<ProjectState>()(
           templateRedoStack: [],
           error: null,
         });
+
+        return Promise.resolve();
       },
 
       loadProject: (project: Project) => {
@@ -1829,11 +1836,16 @@ export const useProjectStore = create<ProjectState>()(
             mediaType = "image";
           }
 
+          let storedHandle: FileSystemFileHandle | null = null;
+          try {
+            storedHandle = await loadFileHandle(file.name, file.size);
+          } catch { /* ignore */ }
+
           const newMediaItem: MediaItem = {
             id: uuidv4(),
             name: file.name,
             type: mediaType,
-            fileHandle: null,
+            fileHandle: storedHandle,
             blob: file,
             metadata: {
               // Images have no inherent duration (like graphics), duration is set on the clip
@@ -1864,15 +1876,23 @@ export const useProjectStore = create<ProjectState>()(
 
           set({ project: updatedProject });
 
-          try {
-            await saveMediaBlob(
-              updatedProject.id,
-              newMediaItem.id,
-              file,
-              newMediaItem.metadata,
-            );
-          } catch (err) {
-            console.error("[ProjectStore] Failed to persist media blob:", err);
+          // Avoid saving raw blobs in IndexedDB for files >20MB or when we have a local FileSystemFileHandle.
+          // This keeps IndexedDB storage extremely lightweight and avoids browser quota exceptions.
+          const shouldSaveBlob = !storedHandle && file.size <= 20 * 1024 * 1024;
+
+          if (shouldSaveBlob) {
+            try {
+              await saveMediaBlob(
+                updatedProject.id,
+                newMediaItem.id,
+                file,
+                newMediaItem.metadata,
+              );
+            } catch (err) {
+              console.error("[ProjectStore] Failed to persist media blob:", err);
+            }
+          } else {
+            console.info(`[ProjectStore] Skipped storing raw blob for ${file.name} to preserve storage capacity. Local handle or user relink will be used.`);
           }
 
           if (isLargeFile && !thumbnailUrl) {
@@ -4088,6 +4108,12 @@ export const useProjectStore = create<ProjectState>()(
       },
 
       recoverFromAutoSave: async (saveId: string) => {
+        try {
+          await get().forceSave();
+        } catch (err) {
+          console.warn("Failed to auto-save current project before switching:", err);
+        }
+
         const recoveredProject = await autoSaveManager.recover(saveId);
         if (recoveredProject) {
           const storedMedia = await loadProjectMedia(recoveredProject.id);

@@ -113,6 +113,10 @@ vi.mock("../services/auto-save", () => ({
     getRecentSaves: vi.fn().mockResolvedValue([]),
     loadSave: vi.fn(),
     deleteSave: vi.fn(),
+    forceSave: vi.fn().mockResolvedValue(undefined),
+    deleteProjectSaves: vi.fn().mockResolvedValue(undefined),
+    renameProjectSaves: vi.fn().mockResolvedValue(undefined),
+    getIsDirty: vi.fn().mockReturnValue(false),
   },
   initializeAutoSave: vi.fn().mockResolvedValue(undefined),
 }));

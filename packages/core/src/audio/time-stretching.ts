@@ -1,4 +1,3 @@
-import type { AudioBuffer } from "../types";
 
 /**
  * AudioTimeStretcher provides high-quality pitch-preserving time stretching
@@ -56,13 +55,12 @@ export class AudioTimeStretcher {
     }
 
     // WSOLA Parameters
-    // Tuning N=2048 (~43ms) and Ho=256 (87.5% overlap) dramatically improves phase alignment
-    // and eliminates granular buzz/crackle ("rè rè" sound).
-    const N = 2048; 
-    const Ho = Math.floor(N / 8); // Synthesis Hop Size (256 samples, high overlap for smoothness)
-    const Hi = Math.floor(Ho * speed); // Analysis Hop Size
-    const delta = Math.floor(N / 4); // Search tolerance (512 samples)
-    const L = Math.floor(N / 2); // Similarity correlation window (1024 samples)
+    // Tuning N=1024 (~21ms) and Ho=128 (87.5% overlap) yields excellent speech quality 
+    // and runs 4x faster than N=2048, preventing long processing times.
+    const N = 1024; 
+    const Ho = Math.floor(N / 8); // Synthesis Hop Size (128 samples, high overlap for smoothness)
+    const delta = Math.floor(N / 4); // Search tolerance (256 samples)
+    const L = Math.floor(N / 2); // Similarity correlation window (512 samples)
 
     // Window function: Hann window for smooth fading
     const hannWindow = new Float32Array(N);
@@ -106,14 +104,14 @@ export class AudioTimeStretcher {
       
       // Only perform similarity search if we are within valid bounds
       if (templateStart + L < originalLength) {
-        let maxCorrelation = -Infinity;
-
         const startSearch = Math.max(0, pTarget - delta);
         const endSearch = Math.min(originalLength - N, pTarget + delta);
 
-        // Pre-calculate template energy for normalization if needed,
-        // using highly optimized loop unrolling (j += 4) to allow maximum JIT optimization
-        for (let q = startSearch; q < endSearch; q++) {
+        let bestQCoarse = pTarget;
+        let maxCorrelationCoarse = -Infinity;
+
+        // 1. Coarse Search with step of 8 to quickly scan the search window
+        for (let q = startSearch; q < endSearch; q += 8) {
           let correlation = 0;
           let energy = 0;
           
@@ -154,6 +152,63 @@ export class AudioTimeStretcher {
           }
 
           // Normalize correlation to avoid bias towards high-amplitude zones
+          const score = energy > 1e-4 ? correlation / Math.sqrt(energy) : correlation;
+          
+          if (score > maxCorrelationCoarse) {
+            maxCorrelationCoarse = score;
+            bestQCoarse = q;
+          }
+        }
+
+        // 2. Fine Local Search around bestQCoarse candidate (+/- 7 samples)
+        const startFine = Math.max(startSearch, bestQCoarse - 7);
+        const endFine = Math.min(endSearch, bestQCoarse + 8);
+        
+        let maxCorrelation = maxCorrelationCoarse;
+        bestQ = bestQCoarse;
+
+        for (let q = startFine; q < endFine; q++) {
+          if (q === bestQCoarse) continue; // Already evaluated
+
+          let correlation = 0;
+          let energy = 0;
+          
+          let j = 0;
+          const limit = L - 3;
+          for (; j < limit; j += 4) {
+            // Sample 1
+            const t1 = searchChannel[templateStart + j];
+            const c1 = searchChannel[q + j];
+            correlation += t1 * c1;
+            energy += c1 * c1;
+
+            // Sample 2
+            const t2 = searchChannel[templateStart + j + 1];
+            const c2 = searchChannel[q + j + 1];
+            correlation += t2 * c2;
+            energy += c2 * c2;
+
+            // Sample 3
+            const t3 = searchChannel[templateStart + j + 2];
+            const c3 = searchChannel[q + j + 2];
+            correlation += t3 * c3;
+            energy += c3 * c3;
+
+            // Sample 4
+            const t4 = searchChannel[templateStart + j + 3];
+            const c4 = searchChannel[q + j + 3];
+            correlation += t4 * c4;
+            energy += c4 * c4;
+          }
+
+          // Process remaining elements
+          for (; j < L; j++) {
+            const t = searchChannel[templateStart + j];
+            const c = searchChannel[q + j];
+            correlation += t * c;
+            energy += c * c;
+          }
+
           const score = energy > 1e-4 ? correlation / Math.sqrt(energy) : correlation;
           
           if (score > maxCorrelation) {

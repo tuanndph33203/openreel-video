@@ -82,7 +82,10 @@ export async function restoreMediaItem(
   const blob = storedBlob || item.blob;
 
   if (!blob) {
-    return item;
+    return {
+      ...item,
+      isPlaceholder: true,
+    };
   }
 
   let thumbnailUrl = item.thumbnailUrl;

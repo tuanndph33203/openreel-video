@@ -122,8 +122,10 @@ export class AudioEngine {
   private config: AudioEngineConfig;
   private trackNodes: Map<string, AudioTrackNodes> = new Map();
   private mediaBuffers: Map<string, AudioBuffer> = new Map();
+  private stretchedBuffers: Map<string, AudioBuffer> = new Map();
   private segmentedAudioDecoders: Map<string, SegmentedAudioDecoder> = new Map();
   private effectsEngine: AudioEffectsEngine | null = null;
+  private currentProjectDuration = 0;
 
   /**
    * Creates a new AudioEngine instance.
@@ -205,6 +207,7 @@ export class AudioEngine {
   ): Promise<RenderedAudio> {
     this.ensureInitialized();
     project = this.normalizeProject(project);
+    this.currentProjectDuration = project.timeline?.duration || 0;
 
     const { timeline, mediaLibrary, settings } = project;
     const sampleRate = settings.sampleRate || this.config.sampleRate;
@@ -381,6 +384,27 @@ export class AudioEngine {
       return null;
     }
 
+    console.log(`[AudioEngine] Decoding audio buffer for media ${mediaItem.id}...`);
+    const decodeStart = performance.now();
+
+    // Try native browser decoding first for primary tracks to avoid unpkg.com network load & latency
+    if (audioTrackIndex === 0) {
+      try {
+        const arrayBuffer = await mediaItem.blob.arrayBuffer();
+        const audioBuffer = await context.decodeAudioData(arrayBuffer);
+        if (audioBuffer) {
+          console.log(`[AudioEngine] Native browser decoding succeeded for ${mediaItem.id} in ${(performance.now() - decodeStart).toFixed(1)}ms`);
+          this.mediaBuffers.set(cacheKey, audioBuffer);
+          return audioBuffer;
+        }
+      } catch (error) {
+        console.warn(
+          `[AudioEngine] Native browser decoding failed for ${mediaItem.id}, trying FFmpeg fallback:`,
+          error
+        );
+      }
+    }
+
     try {
       const audioBuffer = await this.extractAudioFromVideo(
         mediaItem,
@@ -388,11 +412,12 @@ export class AudioEngine {
         audioTrackIndex,
       );
       if (audioBuffer) {
+        console.log(`[AudioEngine] FFmpeg audio extraction succeeded for ${mediaItem.id} in ${(performance.now() - decodeStart).toFixed(1)}ms`);
         this.mediaBuffers.set(cacheKey, audioBuffer);
         return audioBuffer;
       }
-    } catch {
-      // mediabunny extraction failed
+    } catch (e) {
+      console.error(`[AudioEngine] FFmpeg fallback failed for ${mediaItem.id}:`, e);
     }
 
     return null;
@@ -492,6 +517,46 @@ export class AudioEngine {
     );
   }
 
+  private getStretchedBuffer(
+    mediaId: string,
+    audioTrackIndex: number,
+    originalBuffer: AudioBuffer,
+    speed: number,
+  ): AudioBuffer {
+    const cacheKey = `${mediaId}:${audioTrackIndex}:${speed}`;
+    let cached = this.stretchedBuffers.get(cacheKey);
+    if (!cached) {
+      const startTime = performance.now();
+      
+      // Slice original buffer to at most timelineDuration * speed + 5s headroom
+      const timelineDuration = this.currentProjectDuration || originalBuffer.duration;
+      const limitDuration = Math.min(originalBuffer.duration, timelineDuration * speed + 5);
+      
+      let bufferToStretch = originalBuffer;
+      if (originalBuffer.duration > limitDuration) {
+        const limitSamples = Math.ceil(limitDuration * originalBuffer.sampleRate);
+        const sliced = this.audioContext!.createBuffer(
+          originalBuffer.numberOfChannels,
+          limitSamples,
+          originalBuffer.sampleRate
+        );
+        for (let c = 0; c < originalBuffer.numberOfChannels; c++) {
+          sliced.copyToChannel(originalBuffer.getChannelData(c).subarray(0, limitSamples), c);
+        }
+        bufferToStretch = sliced;
+        console.log(`[AudioEngine] Sliced long media ${mediaId} from ${originalBuffer.duration.toFixed(1)}s to ${limitDuration.toFixed(1)}s for stretching.`);
+      }
+
+      console.log(`[AudioEngine] Stretcher CACHE MISS for media ${mediaId} at speed ${speed}. Stretching buffer of ${bufferToStretch.duration.toFixed(2)}s...`);
+      
+      cached = AudioTimeStretcher.stretch(this.audioContext!, bufferToStretch, speed);
+      
+      console.log(`[AudioEngine] Stretcher CACHE HIT created for media ${mediaId} (speed: ${speed}) in ${(performance.now() - startTime).toFixed(1)}ms`);
+      this.stretchedBuffers.set(cacheKey, cached);
+    }
+    return cached;
+  }
+
   private async processClipBuffer(
     audioBuffer: AudioBuffer,
     clipInfo: AudioClipRenderInfo,
@@ -510,15 +575,18 @@ export class AudioEngine {
     let effectiveSpeed = speed;
 
     if (speed !== 1.0 && pitchCorrection) {
-      // Extract segment at original speed first (input duration is timeline duration * speed)
-      const inputDuration = currentDuration * speed;
-      const extracted = this.extractAudioSegment(currentBuffer, currentSourceTime, inputDuration);
-      
-      // Perform pitch-preserved time-stretching
-      currentBuffer = AudioTimeStretcher.stretch(this.audioContext!, extracted, speed);
-      
-      currentSourceTime = 0;
-      currentDuration = currentBuffer.duration;
+      // Retrieve or compute fully stretched buffer from our cache
+      const stretched = this.getStretchedBuffer(
+        clipInfo.mediaId,
+        clipInfo.audioTrackIndex ?? 0,
+        currentBuffer,
+        speed,
+      );
+
+      // Adjust parameters: the buffer is already pre-stretched, so effective speed is now 1.0
+      currentBuffer = stretched;
+      currentSourceTime = clipInfo.sourceTime / speed;
+      currentDuration = clipInfo.duration;
       effectiveSpeed = 1.0;
     }
 
@@ -977,6 +1045,7 @@ export class AudioEngine {
 
   clearCache(): void {
     this.mediaBuffers.clear();
+    this.stretchedBuffers.clear();
 
     for (const decoder of this.segmentedAudioDecoders.values()) {
       decoder.dispose();
