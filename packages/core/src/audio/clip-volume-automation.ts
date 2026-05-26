@@ -135,11 +135,30 @@ export const scheduleVolumeAutomationOnGain = (
   gainNode.gain.cancelScheduledValues(startTime);
 
   if (rangePoints.length === 0) {
-    gainNode.gain.setValueAtTime(clampedBaseVolume, startTime);
+    if (clipOffset === 0) {
+      gainNode.gain.setValueAtTime(0, startTime);
+      gainNode.gain.linearRampToValueAtTime(clampedBaseVolume, startTime + 0.010);
+      
+      if (clipDuration > 0.020) {
+        gainNode.gain.setValueAtTime(clampedBaseVolume, startTime + clipDuration - 0.010);
+        gainNode.gain.linearRampToValueAtTime(0, startTime + clipDuration);
+      }
+    } else {
+      gainNode.gain.setValueAtTime(clampedBaseVolume, startTime);
+      if (clipDuration > 0.010) {
+        gainNode.gain.setValueAtTime(clampedBaseVolume, startTime + clipDuration - 0.010);
+        gainNode.gain.linearRampToValueAtTime(0, startTime + clipDuration);
+      }
+    }
     return;
   }
 
-  gainNode.gain.setValueAtTime(rangePoints[0].value, startTime);
+  if (clipOffset === 0) {
+    gainNode.gain.setValueAtTime(0, startTime);
+    gainNode.gain.linearRampToValueAtTime(rangePoints[0].value, startTime + 0.010);
+  } else {
+    gainNode.gain.setValueAtTime(rangePoints[0].value, startTime);
+  }
 
   for (let index = 1; index < rangePoints.length; index += 1) {
     const point = rangePoints[index];
@@ -149,5 +168,12 @@ export const scheduleVolumeAutomationOnGain = (
   const lastPoint = rangePoints[rangePoints.length - 1];
   if (lastPoint.time < clipDuration) {
     gainNode.gain.setValueAtTime(lastPoint.value, startTime + lastPoint.time);
+  }
+
+  // Smooth ending fade-out for the last 10ms
+  if (clipDuration > 0.010) {
+    const lastVolume = lastPoint.value;
+    gainNode.gain.setValueAtTime(lastVolume, startTime + clipDuration - 0.010);
+    gainNode.gain.linearRampToValueAtTime(0, startTime + clipDuration);
   }
 };

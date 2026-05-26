@@ -18,7 +18,9 @@
     "clean": "pnpm -r clean",
     "claude:help": "cat scripts/claude-review.md",
     "issues": "gh issue list --label needs-claude-review",
-    "prs": "gh pr list --label needs-claude-review"
+    "prs": "gh pr list --label needs-claude-review",
+    "tauri:dev": "pnpm --filter @openreel/web tauri dev",
+    "tauri:build": "pnpm --filter @openreel/web tauri build"
   },
   "keywords": [
     "video-editor",

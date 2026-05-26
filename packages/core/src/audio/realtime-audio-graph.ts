@@ -81,13 +81,14 @@ export class RealtimeAudioGraph {
   private isPlaying = false;
   private lastScheduledTime = 0;
   private seekPending = false;
-  private scheduleAheadTime = 0.2;
+  private scheduleAheadTime = 1.2;
   private schedulerIntervalId: number | null = null;
   /** Persist mixer volume/pan so they survive track recreate (e.g. on seek). */
   private trackVolumeOverrides: Map<string, number> = new Map();
   private trackPanOverrides: Map<string, number> = new Map();
   private masterVolumeOverride = 1;
   private previewMuted = false;
+  private stretchedAudioCache: Map<string, AudioBuffer> = new Map();
 
   constructor(masterClock?: MasterTimelineClock) {
     this.masterClock = masterClock || getMasterClock();
@@ -551,15 +552,22 @@ export class RealtimeAudioGraph {
     let isStretched = false;
 
     if (speed !== 1.0 && pitchCorrection) {
-      // Extract segment at original speed first (input duration is timeline duration * speed)
-      // Extract from the absolute inPoint of the clip, not the current real-time playhead mediaOffset
-      const clipInPoint = schedule.inPoint ?? 0;
-      const inputDuration = duration * speed;
-      const extracted = this.extractAudioSegment(bufferToUse, clipInPoint, inputDuration);
-      
-      // Perform time-stretching
-      bufferToUse = AudioTimeStretcher.stretch(this.audioContext, extracted, speed);
-      
+      const cacheKey = `${schedule.clipId}:${speed}:${duration.toFixed(3)}:${(schedule.inPoint ?? 0).toFixed(3)}`;
+      let stretched = this.stretchedAudioCache.get(cacheKey);
+
+      if (!stretched) {
+        // Extract segment at original speed first (input duration is timeline duration * speed)
+        // Extract from the absolute inPoint of the clip, not the current real-time playhead mediaOffset
+        const clipInPoint = schedule.inPoint ?? 0;
+        const inputDuration = duration * speed;
+        const extracted = this.extractAudioSegment(bufferToUse, clipInPoint, inputDuration);
+        
+        // Perform time-stretching
+        stretched = AudioTimeStretcher.stretch(this.audioContext, extracted, speed);
+        this.stretchedAudioCache.set(cacheKey, stretched);
+      }
+
+      bufferToUse = stretched;
       effectiveMediaOffset = 0;
       effectiveSpeed = 1.0;
       isStretched = true;
@@ -725,7 +733,7 @@ export class RealtimeAudioGraph {
       }
     };
 
-    this.schedulerIntervalId = window.setInterval(scheduleAudio, 100);
+    this.schedulerIntervalId = window.setInterval(scheduleAudio, 50);
     scheduleAudio();
   }
 

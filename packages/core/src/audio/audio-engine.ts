@@ -219,6 +219,15 @@ export class AudioEngine {
       frameCount,
       sampleRate,
     );
+    // Create a master dynamics compressor to prevent clipping ("rè tiếng") in export
+    const masterLimiter = offlineContext.createDynamicsCompressor();
+    masterLimiter.threshold.value = -0.5;
+    masterLimiter.knee.value = 4;
+    masterLimiter.ratio.value = 20;
+    masterLimiter.attack.value = 0.001;
+    masterLimiter.release.value = 0.05;
+    masterLimiter.connect(offlineContext.destination);
+    (offlineContext as any).masterLimiter = masterLimiter;
     const audioTracks = this.getAudioTracksAtTime(
       timeline,
       startTime,
@@ -756,7 +765,8 @@ export class AudioEngine {
 
     volumeGainNode.connect(fadeGainNode);
     fadeGainNode.connect(pannerNode);
-    pannerNode.connect(context.destination);
+    const destinationNode = (context as any).masterLimiter || context.destination;
+    pannerNode.connect(destinationNode);
 
     return { volumeGainNode, fadeGainNode, pannerNode };
   }

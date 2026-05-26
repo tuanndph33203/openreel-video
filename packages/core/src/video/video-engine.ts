@@ -532,8 +532,18 @@ export class VideoEngine {
     project = this.normalizeProject(project);
 
     const { timeline, mediaLibrary, settings } = project;
-    const width = targetWidth ?? settings.width;
-    const height = targetHeight ?? settings.height;
+    let width = targetWidth ?? settings.width;
+    let height = targetHeight ?? settings.height;
+
+    // Cap preview resolution to improve decoding/rendering performance
+    if (!this.exportMode) {
+      const MAX_PREVIEW_WIDTH = 960; // 540p max width
+      if (width > MAX_PREVIEW_WIDTH) {
+        const ratio = height / width;
+        width = MAX_PREVIEW_WIDTH;
+        height = Math.round(MAX_PREVIEW_WIDTH * ratio);
+      }
+    }
 
     const scaleX = width / settings.width;
     const scaleY = height / settings.height;

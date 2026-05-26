@@ -1,1 +1,1 @@
-$web = Start-Job { Set-Location "C:\Users\PC\Projects\openreel-video"; pnpm.cmd dev }; $tts = Start-Job { Set-Location "C:\Users\PC\Projects\openreel-video\apps\tts-server"; python main.py }; Receive-Job -Job $web,$tts -Wait
+$web = Start-Job -ArgumentList $PSScriptRoot -ScriptBlock { param($p) Set-Location $p; npx pnpm dev }; $tts = Start-Job -ArgumentList $PSScriptRoot -ScriptBlock { param($p) Set-Location "$p\apps\tts-server"; python main.py }; Receive-Job -Job $web,$tts -Wait

@@ -281,6 +281,20 @@ export class ExportEngine {
       this.videoEngine.exportMode = true;
     }
 
+    // Load overlays into the global engines for rendering
+    if (project.textClips) {
+      titleEngine.loadTextClips(project.textClips);
+    }
+    if (project.shapeClips) {
+      graphicsEngine.loadShapeClips(project.shapeClips);
+    }
+    if (project.svgClips) {
+      graphicsEngine.loadSVGClips(project.svgClips);
+    }
+    if (project.stickerClips) {
+      graphicsEngine.loadStickerClips(project.stickerClips);
+    }
+
     if (timelineDuration <= 0) {
       return {
         success: false,
