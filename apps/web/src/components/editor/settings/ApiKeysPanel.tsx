@@ -35,12 +35,16 @@ export const ApiKeysPanel: React.FC = () => {
     removeConfiguredService,
     customOpenAiBaseUrl,
     customAnthropicBaseUrl,
+    customGeminiBaseUrl,
     customOpenAiModel,
     customAnthropicModel,
+    customGeminiModel,
     setCustomOpenAiBaseUrl,
     setCustomAnthropicBaseUrl,
+    setCustomGeminiBaseUrl,
     setCustomOpenAiModel,
     setCustomAnthropicModel,
+    setCustomGeminiModel,
   } = useSettingsStore();
 
   const [passwordSet, setPasswordSet] = useState(false);
@@ -392,6 +396,41 @@ export const ApiKeysPanel: React.FC = () => {
                 </div>
               )}
 
+              {stored.id === "gemini" && (
+                <div className="mt-3 space-y-3">
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-medium text-text-secondary">
+                      Custom Endpoint Base URL (Optional)
+                    </label>
+                    <Input
+                      type="text"
+                      value={customGeminiBaseUrl}
+                      onChange={(e) => setCustomGeminiBaseUrl(e.target.value)}
+                      placeholder="e.g. https://generativelanguage.googleapis.com/v1beta or custom proxy endpoint"
+                      className="font-mono text-xs"
+                    />
+                    <p className="text-[10px] text-text-muted">
+                      Override default Gemini API endpoint. Useful for compatible custom proxy endpoints or reverse proxies.
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-medium text-text-secondary">
+                      Custom Model Name (Optional)
+                    </label>
+                    <Input
+                      type="text"
+                      value={customGeminiModel}
+                      onChange={(e) => setCustomGeminiModel(e.target.value)}
+                      placeholder="e.g. gemini-1.5-flash, gemini-1.5-pro, gemini-2.0-flash (default: gemini-1.5-flash)"
+                      className="font-mono text-xs"
+                    />
+                    <p className="text-[10px] text-text-muted">
+                      Specify the custom Gemini model name to use when calling your endpoint.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               <div className="text-[10px] text-text-muted mt-2">
                 Added {new Date(stored.createdAt).toLocaleDateString()} &middot;
                 Updated {new Date(stored.updatedAt).toLocaleDateString()}
@@ -452,6 +491,24 @@ export const ApiKeysPanel: React.FC = () => {
               />
               <p className="text-[10px] text-text-muted">
                 Override default Anthropic API endpoint. Useful for compatible custom proxy endpoints.
+              </p>
+            </div>
+          )}
+
+          {addingService === "gemini" && (
+            <div className="mb-3 space-y-1 text-left">
+              <label className="block text-[11px] font-medium text-text-secondary">
+                Custom Endpoint Base URL (Optional)
+              </label>
+              <Input
+                type="text"
+                value={customGeminiBaseUrl}
+                onChange={(e) => setCustomGeminiBaseUrl(e.target.value)}
+                placeholder="e.g. https://generativelanguage.googleapis.com/v1beta or custom proxy endpoint"
+                className="font-mono text-xs mb-1"
+              />
+              <p className="text-[10px] text-text-muted">
+                Override default Gemini API endpoint. Useful for compatible custom proxy endpoints or reverse proxies.
               </p>
             </div>
           )}

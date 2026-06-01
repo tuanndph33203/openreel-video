@@ -593,6 +593,8 @@ export class PlaybackController {
           pan: getPanFromAudioEffects(clip.audioEffects || []),
           effects: getPreviewAudioEffects(clip.audioEffects || []),
           speed: clip.speed ?? 1,
+          inPoint: clip.inPoint,
+          pitchCorrection: true,
         });
       }
     }

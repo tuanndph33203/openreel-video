@@ -55,6 +55,7 @@ import {
 } from "../services/auto-save";
 import { useEngineStore } from "./engine-store";
 import { getMediaBridge, initializeMediaBridge } from "../bridges/media-bridge";
+import { isTauri, tauriImportMedia } from "../bridges/tauri-bridge";
 import { getGraphicsBridge } from "../bridges/graphics-bridge";
 import {
   createEmptyProject,
@@ -1752,79 +1753,82 @@ export const useProjectStore = create<ProjectState>()(
       },
 
       // Media library actions
-      importMedia: async (file: File) => {
+      importMedia: async (file: File & { tauriPath?: string }) => {
         const { project } = get();
 
         try {
-          const mediaBridge = getMediaBridge();
-          if (!mediaBridge.isInitialized()) {
-            await initializeMediaBridge();
-          }
-
-          const isLargeFile = file.size > 50 * 1024 * 1024;
-          const importResult = await mediaBridge.importFile(file, true, isLargeFile);
-
-          if (!importResult.success || !importResult.media) {
-            return {
-              success: false,
-              error: {
-                code: "DECODE_ERROR" as const,
-                message: importResult.error || "Failed to import media",
-              },
-            };
-          }
-
-          // Create a MediaItem from the processed media
-          const processedMedia = importResult.media;
-
-          // Get thumbnail URL from the first thumbnail if available
-          // Also collect all thumbnails for filmstrip display
+          let processedMedia: any;
+          let filmstripThumbnails: { timestamp: number; url: string }[] = [];
           let thumbnailUrl: string | null = null;
-          const filmstripThumbnails: { timestamp: number; url: string }[] = [];
+          const isLargeFile = file.size > 50 * 1024 * 1024;
 
-          if (
-            processedMedia.thumbnails &&
-            processedMedia.thumbnails.length > 0
-          ) {
-            // Process all thumbnails for filmstrip display
-            for (const thumb of processedMedia.thumbnails) {
-              let thumbUrl: string | null = null;
+          if (isTauri() && file.tauriPath) {
+            processedMedia = await tauriImportMedia(file.tauriPath, file.name, file.size, file.type);
+            if (processedMedia.thumbnails && processedMedia.thumbnails.length > 0) {
+              thumbnailUrl = processedMedia.thumbnails[0].dataUrl;
+              filmstripThumbnails = processedMedia.thumbnails.map((t: any) => ({
+                timestamp: t.timestamp,
+                url: t.dataUrl,
+              }));
+            }
+          } else {
+            const mediaBridge = getMediaBridge();
+            if (!mediaBridge.isInitialized()) {
+              await initializeMediaBridge();
+            }
 
-              // Check if dataUrl already exists
-              if (thumb.dataUrl) {
-                thumbUrl = thumb.dataUrl;
-              } else if (thumb.canvas) {
-                // Convert canvas to dataUrl
-                try {
-                  if (thumb.canvas instanceof OffscreenCanvas) {
-                    const blob = await thumb.canvas.convertToBlob({
-                      type: "image/jpeg",
-                      quality: 0.7,
-                    });
-                    thumbUrl = URL.createObjectURL(blob);
-                  } else if (thumb.canvas instanceof HTMLCanvasElement) {
-                    thumbUrl = thumb.canvas.toDataURL("image/jpeg", 0.7);
+            const importResult = await mediaBridge.importFile(file, true, isLargeFile);
+
+            if (!importResult.success || !importResult.media) {
+              return {
+                success: false,
+                error: {
+                  code: "DECODE_ERROR" as const,
+                  message: importResult.error || "Failed to import media",
+                },
+              };
+            }
+
+            processedMedia = importResult.media;
+
+            if (
+              processedMedia.thumbnails &&
+              processedMedia.thumbnails.length > 0
+            ) {
+              for (const thumb of processedMedia.thumbnails) {
+                let thumbUrl: string | null = null;
+                if (thumb.dataUrl) {
+                  thumbUrl = thumb.dataUrl;
+                } else if (thumb.canvas) {
+                  try {
+                    if (thumb.canvas instanceof OffscreenCanvas) {
+                      const blob = await thumb.canvas.convertToBlob({
+                        type: "image/jpeg",
+                        quality: 0.7,
+                      });
+                      thumbUrl = URL.createObjectURL(blob);
+                    } else if (thumb.canvas instanceof HTMLCanvasElement) {
+                      thumbUrl = thumb.canvas.toDataURL("image/jpeg", 0.7);
+                    }
+                  } catch (e) {
+                    console.warn("Failed to convert thumbnail canvas to URL:", e);
                   }
-                } catch (e) {
-                  console.warn("Failed to convert thumbnail canvas to URL:", e);
+                }
+
+                if (thumbUrl) {
+                  filmstripThumbnails.push({
+                    timestamp: thumb.timestamp,
+                    url: thumbUrl,
+                  });
                 }
               }
 
-              if (thumbUrl) {
-                filmstripThumbnails.push({
-                  timestamp: thumb.timestamp,
-                  url: thumbUrl,
-                });
+              if (filmstripThumbnails.length > 0) {
+                thumbnailUrl = filmstripThumbnails[0].url;
               }
-            }
-
-            // Use first thumbnail as the main thumbnail
-            if (filmstripThumbnails.length > 0) {
-              thumbnailUrl = filmstripThumbnails[0].url;
             }
           }
 
-          // Determine media type - check file MIME type first for images
           let mediaType: "video" | "audio" | "image";
           if (file.type.startsWith("image/")) {
             mediaType = "image";
@@ -1846,9 +1850,14 @@ export const useProjectStore = create<ProjectState>()(
             name: file.name,
             type: mediaType,
             fileHandle: storedHandle,
-            blob: file,
+            filePath: file.tauriPath,
+            // In Tauri mode, use the WAV audio blob extracted by tauriImportMedia (processedMedia.blob)
+            // instead of the empty mock file, so the audio engine can decode it.
+            // In non-Tauri mode, the original file contains the full media data.
+            blob: (isTauri() && file.tauriPath && processedMedia.blob && processedMedia.blob.size > 0)
+              ? processedMedia.blob
+              : file,
             metadata: {
-              // Images have no inherent duration (like graphics), duration is set on the clip
               duration: processedMedia.metadata.duration || 0,
               width: processedMedia.metadata.width || 0,
               height: processedMedia.metadata.height || 0,
@@ -1865,6 +1874,7 @@ export const useProjectStore = create<ProjectState>()(
             sourceFile: { name: file.name, size: file.size, lastModified: file.lastModified },
           };
 
+
           const updatedProject = {
             ...project,
             mediaLibrary: {
@@ -1876,62 +1886,63 @@ export const useProjectStore = create<ProjectState>()(
 
           set({ project: updatedProject });
 
-          // Avoid saving raw blobs in IndexedDB for files >20MB or when we have a local FileSystemFileHandle.
-          // This keeps IndexedDB storage extremely lightweight and avoids browser quota exceptions.
-          const shouldSaveBlob = !storedHandle && file.size <= 20 * 1024 * 1024;
+          if (!(isTauri() && file.tauriPath)) {
+            const shouldSaveBlob = !storedHandle && file.size <= 20 * 1024 * 1024;
 
-          if (shouldSaveBlob) {
-            try {
-              await saveMediaBlob(
-                updatedProject.id,
-                newMediaItem.id,
-                file,
-                newMediaItem.metadata,
-              );
-            } catch (err) {
-              console.error("[ProjectStore] Failed to persist media blob:", err);
-            }
-          } else {
-            console.info(`[ProjectStore] Skipped storing raw blob for ${file.name} to preserve storage capacity. Local handle or user relink will be used.`);
-          }
-
-          if (isLargeFile && !thumbnailUrl) {
-            setTimeout(async () => {
+            if (shouldSaveBlob) {
               try {
-                const thumbs = await mediaBridge.generateThumbnailsForMedia(
+                await saveMediaBlob(
+                  updatedProject.id,
+                  newMediaItem.id,
                   file,
-                  mediaType,
+                  newMediaItem.metadata,
                 );
-                if (thumbs.length > 0) {
-                  const currentProject = get().project;
-                  const mediaIndex = currentProject.mediaLibrary.items.findIndex(
-                    (m) => m.id === newMediaItem.id,
-                  );
-                  if (mediaIndex !== -1) {
-                    const updatedItems = [...currentProject.mediaLibrary.items];
-                    updatedItems[mediaIndex] = {
-                      ...updatedItems[mediaIndex],
-                      thumbnailUrl: thumbs[0].dataUrl,
-                      filmstripThumbnails: thumbs.map((t) => ({
-                        timestamp: t.timestamp,
-                        url: t.dataUrl,
-                      })),
-                    };
-                    set({
-                      project: {
-                        ...currentProject,
-                        mediaLibrary: {
-                          ...currentProject.mediaLibrary,
-                          items: updatedItems,
-                        },
-                      },
-                    });
-                  }
-                }
-              } catch {
-                // Background thumbnail generation is best-effort
+              } catch (err) {
+                console.error("[ProjectStore] Failed to persist media blob:", err);
               }
-            }, 100);
+            } else {
+              console.info(`[ProjectStore] Skipped storing raw blob for ${file.name} to preserve storage capacity. Local handle or user relink will be used.`);
+            }
+
+            if (isLargeFile && !thumbnailUrl) {
+              const mediaBridge = getMediaBridge();
+              setTimeout(async () => {
+                try {
+                  const thumbs = await mediaBridge.generateThumbnailsForMedia(
+                    file,
+                    mediaType,
+                  );
+                  if (thumbs.length > 0) {
+                    const currentProject = get().project;
+                    const mediaIndex = currentProject.mediaLibrary.items.findIndex(
+                      (m) => m.id === newMediaItem.id,
+                    );
+                    if (mediaIndex !== -1) {
+                      const updatedItems = [...currentProject.mediaLibrary.items];
+                      updatedItems[mediaIndex] = {
+                        ...updatedItems[mediaIndex],
+                        thumbnailUrl: thumbs[0].dataUrl,
+                        filmstripThumbnails: thumbs.map((t) => ({
+                          timestamp: t.timestamp,
+                          url: t.dataUrl,
+                        })),
+                      };
+                      set({
+                        project: {
+                          ...currentProject,
+                          mediaLibrary: {
+                            ...currentProject.mediaLibrary,
+                            items: updatedItems,
+                          },
+                        },
+                      });
+                    }
+                  }
+                } catch {
+                  // Background thumbnail generation is best-effort
+                }
+              }, 100);
+            }
           }
 
           return {

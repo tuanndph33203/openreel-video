@@ -33,6 +33,12 @@ export const SERVICE_REGISTRY: readonly ServiceConfig[] = [
     docsUrl: "https://docs.anthropic.com/en/docs",
   },
   {
+    id: "gemini",
+    label: "Google Gemini",
+    description: "Gemini models for AI script generation, auto-captioning, and translation (supports custom endpoints)",
+    docsUrl: "https://ai.google.dev/gemini-api/docs",
+  },
+  {
     id: "kie-ai",
     label: "Kie.ai",
     description: "AI aggregator for video/image generation, upscaling, and editing",
@@ -47,7 +53,7 @@ export const SERVICE_REGISTRY: readonly ServiceConfig[] = [
 ] as const;
 
 export type TtsProvider = "piper" | "elevenlabs" | "vieneu";
-export type LlmProvider = "openai" | "anthropic";
+export type LlmProvider = "openai" | "anthropic" | "gemini";
 export type AggregatorProvider = "kie-ai" | "freepik";
 export type SettingsTab = "general" | "api-keys";
 
@@ -76,8 +82,10 @@ export interface SettingsState {
 
   customOpenAiBaseUrl: string;
   customAnthropicBaseUrl: string;
+  customGeminiBaseUrl: string;
   customOpenAiModel: string;
   customAnthropicModel: string;
+  customGeminiModel: string;
 
   // Actions
   setAutoSave: (enabled: boolean) => void;
@@ -95,8 +103,10 @@ export interface SettingsState {
   removeConfiguredService: (serviceId: string) => void;
   setCustomOpenAiBaseUrl: (url: string) => void;
   setCustomAnthropicBaseUrl: (url: string) => void;
+  setCustomGeminiBaseUrl: (url: string) => void;
   setCustomOpenAiModel: (model: string) => void;
   setCustomAnthropicModel: (model: string) => void;
+  setCustomGeminiModel: (model: string) => void;
   setCachedElevenLabsVoices: (voices: SettingsState["cachedElevenLabsVoices"]) => void;
   setCachedElevenLabsModels: (models: SettingsState["cachedElevenLabsModels"]) => void;
   clearApiCaches: () => void;
@@ -121,8 +131,10 @@ export const useSettingsStore = create<SettingsState>()(
         configuredServices: [],
         customOpenAiBaseUrl: "",
         customAnthropicBaseUrl: "",
+        customGeminiBaseUrl: "",
         customOpenAiModel: "",
         customAnthropicModel: "",
+        customGeminiModel: "",
 
         cachedElevenLabsVoices: null,
         cachedElevenLabsModels: null,
@@ -189,8 +201,10 @@ export const useSettingsStore = create<SettingsState>()(
 
         setCustomOpenAiBaseUrl: (url: string) => set({ customOpenAiBaseUrl: url }),
         setCustomAnthropicBaseUrl: (url: string) => set({ customAnthropicBaseUrl: url }),
+        setCustomGeminiBaseUrl: (url: string) => set({ customGeminiBaseUrl: url }),
         setCustomOpenAiModel: (model: string) => set({ customOpenAiModel: model }),
         setCustomAnthropicModel: (model: string) => set({ customAnthropicModel: model }),
+        setCustomGeminiModel: (model: string) => set({ customGeminiModel: model }),
 
         setCachedElevenLabsVoices: (voices) =>
           set({ cachedElevenLabsVoices: voices }),
@@ -225,8 +239,10 @@ export const useSettingsStore = create<SettingsState>()(
           configuredServices: state.configuredServices,
           customOpenAiBaseUrl: state.customOpenAiBaseUrl,
           customAnthropicBaseUrl: state.customAnthropicBaseUrl,
+          customGeminiBaseUrl: state.customGeminiBaseUrl,
           customOpenAiModel: state.customOpenAiModel,
           customAnthropicModel: state.customAnthropicModel,
+          customGeminiModel: state.customGeminiModel,
         }),
       },
     ),

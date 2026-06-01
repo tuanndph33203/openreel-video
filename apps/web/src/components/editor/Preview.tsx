@@ -76,11 +76,13 @@ import {
   ParticleRenderer,
 } from "./preview/index";
 import { ProcessingOverlay } from "./ProcessingOverlay";
+import { getMediaSourceUrl, isTauri } from "../../bridges/tauri-bridge";
 import {
   getPersonSegmentationEngine,
   getBackgroundRemovalEngine,
   getStabilizedTransform,
   getVidstabEngine,
+  createMediaBunnySource,
 } from "@openreel/core";
 import type { MotionPathConfig, GSAPMotionPathPoint } from "@openreel/core";
 
@@ -1410,15 +1412,33 @@ export const Preview: React.FC = () => {
           const audioEffects = getResolvedClipAudioEffects(clip).filter(
             (effect: Effect) => effect.enabled,
           );
+          let targetBuffer = audioBuffer;
+
           if (audioEffects.length > 0) {
             try {
-              await getPreviewAudioBufferForEffects(audioBuffer, cacheKey, audioEffects);
+              const processed = await getPreviewAudioBufferForEffects(audioBuffer, cacheKey, audioEffects);
+              if (processed && processed.audioBuffer) {
+                targetBuffer = processed.audioBuffer;
+              }
             } catch (error) {
               console.warn(
                 `[Preview] Failed to pre-process audio effects for clip ${clip.id}:`,
                 error,
               );
             }
+          }
+
+          const speedEngine = getSpeedEngine();
+          const speed = speedEngine.getClipSpeed(clip.id) ?? 1.0;
+          const pitchCorrection = speedEngine.isPitchCorrectionEnabled(clip.id);
+          if (speed !== 1.0 && pitchCorrection) {
+            audioGraph.preStretchClipAudio(
+              clip.id,
+              targetBuffer,
+              speed,
+              clip.duration,
+              clip.inPoint ?? 0,
+            );
           }
         }
       }
@@ -1515,7 +1535,7 @@ export const Preview: React.FC = () => {
       canvasHeight: number,
     ): Promise<ImageBitmap | null> => {
       const mediaItem = getMediaItem(clip.mediaId);
-      if (!mediaItem?.blob) return null;
+      if (!mediaItem?.blob && !mediaItem?.filePath) return null;
       const vidstab = getVidstabEngine();
       const mediaBlob = (vidstab.hasStabilized(clip.id)
         ? vidstab.getStabilizedBlob(clip.id)
@@ -1523,7 +1543,17 @@ export const Preview: React.FC = () => {
 
       if (mediaItem.type === "image") {
         try {
-          return await createImageBitmap(mediaItem.blob);
+          let imageBlob = mediaItem.blob;
+          if (!imageBlob && isTauri() && mediaItem.filePath) {
+            const { convertFileSrc } = await import("@tauri-apps/api/core");
+            const url = convertFileSrc(mediaItem.filePath);
+            const response = await fetch(url);
+            imageBlob = await response.blob();
+          }
+          if (imageBlob) {
+            return await createImageBitmap(imageBlob);
+          }
+          return null;
         } catch {
           return null;
         }
@@ -1568,7 +1598,9 @@ export const Preview: React.FC = () => {
             let cached = videoElementCacheRef.current.get(cacheKey);
 
             if (!cached) {
-              const url = URL.createObjectURL(mediaBlob);
+              const url = (isStabilized || !mediaItem.filePath)
+                ? URL.createObjectURL(mediaBlob)
+                : getMediaSourceUrl(mediaItem)!;
               const video = document.createElement("video");
               video.src = url;
               video.muted = true;
@@ -2602,10 +2634,19 @@ export const Preview: React.FC = () => {
       const imageBitmapCache = new Map<string, ImageBitmap>();
       for (const { clip } of imageClips) {
         const mediaItem = getMediaItem(clip.mediaId);
-        if (mediaItem?.type === "image" && mediaItem.blob) {
+        if (mediaItem?.type === "image") {
           try {
-            const bitmap = await createImageBitmap(mediaItem.blob);
-            imageBitmapCache.set(clip.id, bitmap);
+            let imageBlob = mediaItem.blob;
+            if (!imageBlob && isTauri() && mediaItem.filePath) {
+              const { convertFileSrc } = await import("@tauri-apps/api/core");
+              const url = convertFileSrc(mediaItem.filePath);
+              const response = await fetch(url);
+              imageBlob = await response.blob();
+            }
+            if (imageBlob) {
+              const bitmap = await createImageBitmap(imageBlob);
+              imageBitmapCache.set(clip.id, bitmap);
+            }
           } catch (error) {
             console.warn(`Failed to cache image bitmap for ${clip.id}:`, error);
           }
@@ -2641,17 +2682,19 @@ export const Preview: React.FC = () => {
           return existingLoad;
         }
 
-        if (!mediaItem.blob) {
+        if (!mediaItem.blob && !mediaItem.filePath) {
           return Promise.resolve();
         }
 
         const vidstabEng = getVidstabEngine();
         const isStabilized = vidstabEng.hasStabilized(clip.id);
-        const playBlob = (isStabilized
+        const playBlob = isStabilized
           ? vidstabEng.getStabilizedBlob(clip.id)
-          : mediaItem.blob)!;
+          : mediaItem.blob;
         const cacheId = isStabilized ? `stabilized:${clip.id}` : clip.mediaId;
-        const url = URL.createObjectURL(playBlob);
+        const url = (isStabilized || !mediaItem.filePath)
+          ? URL.createObjectURL(playBlob!)
+          : getMediaSourceUrl(mediaItem)!;
         const video = document.createElement("video");
         video.src = url;
         video.muted = true;
@@ -3225,7 +3268,7 @@ export const Preview: React.FC = () => {
     ) => {
       try {
         const mediaItem = getMediaItem(clip.mediaId);
-        if (!mediaItem?.blob) {
+        if (!mediaItem?.blob && !mediaItem?.filePath) {
           const clipEndTime = clip.startTime + clip.duration;
           const nextResult = findClipAtTime(clipEndTime);
           if (nextResult && clipEndTime < actualEndTime && isActive) {
@@ -3242,10 +3285,10 @@ export const Preview: React.FC = () => {
 
         try {
           const mediabunny = await import("mediabunny");
-          const { Input, ALL_FORMATS, BlobSource, CanvasSink } = mediabunny;
+          const { Input, ALL_FORMATS, CanvasSink } = mediabunny;
 
           const input = new Input({
-            source: new BlobSource(mediaItem.blob),
+            source: createMediaBunnySource(mediabunny, mediaItem),
             formats: ALL_FORMATS,
           });
 
@@ -3270,8 +3313,16 @@ export const Preview: React.FC = () => {
             canvas.height = settings.height;
           }
 
+          const aspect = videoTrack.displayHeight / videoTrack.displayWidth;
+          const maxPreviewWidth = 960; // 540p max preview width for high performance
+          const targetW = Math.min(maxPreviewWidth, settings.width);
+          const targetH = Math.round(targetW * aspect);
+
           const sink = new CanvasSink(videoTrack, {
             poolSize: 3,
+            width: targetW,
+            height: targetH,
+            fit: "contain",
           });
 
           const speedEngine = getSpeedEngine();
@@ -3334,6 +3385,10 @@ export const Preview: React.FC = () => {
           let lastFrameTimestamp = performance.now();
           let frameCount = 0;
 
+          let lastFrameIndex: number | null = null;
+          let lastFrameCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
+          let lastFrameDuration = frameDuration;
+
           const processNextFrame = async () => {
             if (!isActive) {
               input[Symbol.dispose]?.();
@@ -3363,15 +3418,38 @@ export const Preview: React.FC = () => {
                 return;
               }
 
-              const frameResult = await (
-                sink as {
-                  getCanvas: (time: number) => Promise<{
-                    canvas: HTMLCanvasElement | OffscreenCanvas;
-                    timestamp: number;
-                    duration: number;
-                  } | null>;
+              const frameRate = mediaItem.metadata?.frameRate || 30;
+              const currentFrameIndex = Math.floor(currentMediaTime * frameRate);
+
+              let frameResult: {
+                canvas: HTMLCanvasElement | OffscreenCanvas;
+                timestamp: number;
+                duration: number;
+              } | null = null;
+
+              if (lastFrameIndex !== null && currentFrameIndex === lastFrameIndex && lastFrameCanvas) {
+                frameResult = {
+                  canvas: lastFrameCanvas,
+                  timestamp: currentMediaTime,
+                  duration: lastFrameDuration / 1000,
+                };
+              } else {
+                frameResult = await (
+                  sink as {
+                    getCanvas: (time: number) => Promise<{
+                      canvas: HTMLCanvasElement | OffscreenCanvas;
+                      timestamp: number;
+                      duration: number;
+                    } | null>;
+                  }
+                ).getCanvas(currentMediaTime);
+
+                if (frameResult && frameResult.canvas) {
+                  lastFrameIndex = currentFrameIndex;
+                  lastFrameCanvas = frameResult.canvas;
+                  lastFrameDuration = frameResult.duration > 0 ? frameResult.duration * 1000 : frameDuration;
                 }
-              ).getCanvas(currentMediaTime);
+              }
 
               frameCount++;
 
@@ -3565,7 +3643,7 @@ export const Preview: React.FC = () => {
       trackIndex: number,
     ) => {
       const mediaItem = getMediaItem(clip.mediaId);
-      if (!mediaItem?.blob) {
+      if (!mediaItem?.blob && !mediaItem?.filePath) {
         return null;
       }
 
@@ -3576,10 +3654,10 @@ export const Preview: React.FC = () => {
 
       try {
         const mediabunny = await import("mediabunny");
-        const { Input, ALL_FORMATS, BlobSource, CanvasSink } = mediabunny;
+        const { Input, ALL_FORMATS, CanvasSink } = mediabunny;
 
         const input = new Input({
-          source: new BlobSource(mediaItem.blob),
+          source: createMediaBunnySource(mediabunny, mediaItem),
           formats: ALL_FORMATS,
         });
 
@@ -3595,8 +3673,16 @@ export const Preview: React.FC = () => {
           return null;
         }
 
+        const aspect = videoTrack.displayHeight / videoTrack.displayWidth;
+        const maxPreviewWidth = 960;
+        const targetW = Math.min(maxPreviewWidth, settings.width);
+        const targetH = Math.round(targetW * aspect);
+
         const sink = new CanvasSink(videoTrack, {
           poolSize: 3,
+          width: targetW,
+          height: targetH,
+          fit: "contain",
         });
 
         return {
@@ -3626,10 +3712,19 @@ export const Preview: React.FC = () => {
           if (imageBitmapCacheRef.current.has(clip.id)) continue;
 
           const mediaItem = getMediaItem(clip.mediaId);
-          if (mediaItem?.type === "image" && mediaItem.blob) {
+          if (mediaItem?.type === "image") {
             try {
-              const bitmap = await createImageBitmap(mediaItem.blob);
-              imageBitmapCacheRef.current.set(clip.id, bitmap);
+              let imageBlob = mediaItem.blob;
+              if (!imageBlob && isTauri() && mediaItem.filePath) {
+                const { convertFileSrc } = await import("@tauri-apps/api/core");
+                const url = convertFileSrc(mediaItem.filePath);
+                const response = await fetch(url);
+                imageBlob = await response.blob();
+              }
+              if (imageBlob) {
+                const bitmap = await createImageBitmap(imageBlob);
+                imageBitmapCacheRef.current.set(clip.id, bitmap);
+              }
             } catch (error) {
               console.warn(
                 `[Preview] Failed to pre-cache image clip ${clip.id}:`,
@@ -3767,6 +3862,12 @@ export const Preview: React.FC = () => {
       let lastFrameTimestamp = performance.now();
       let frameCount = 0;
       let isProcessingFrame = false;
+
+      const lastDecodedFrames = new Map<string, {
+        frameIndex: number;
+        canvas: HTMLCanvasElement | OffscreenCanvas;
+        duration: number;
+      }>();
 
       const processMultiTrackFrame = async () => {
         if (!isActive) {
@@ -3987,15 +4088,42 @@ export const Preview: React.FC = () => {
                 );
 
                 try {
-                  const frameResult = await (
-                    resources.sink as {
-                      getCanvas: (time: number) => Promise<{
-                        canvas: HTMLCanvasElement | OffscreenCanvas;
-                        timestamp: number;
-                        duration: number;
-                      } | null>;
+                  const mediaItem = getMediaItem(clip.mediaId);
+                  const frameRate = mediaItem?.metadata?.frameRate || 30;
+                  const currentFrameIndex = Math.floor(sourceTime * frameRate);
+
+                  const cached = lastDecodedFrames.get(clip.id);
+                  let frameResult: {
+                    canvas: HTMLCanvasElement | OffscreenCanvas;
+                    timestamp: number;
+                    duration: number;
+                  } | null = null;
+
+                  if (cached && cached.frameIndex === currentFrameIndex) {
+                    frameResult = {
+                      canvas: cached.canvas,
+                      timestamp: sourceTime,
+                      duration: cached.duration,
+                    };
+                  } else {
+                    frameResult = await (
+                      resources.sink as {
+                        getCanvas: (time: number) => Promise<{
+                          canvas: HTMLCanvasElement | OffscreenCanvas;
+                          timestamp: number;
+                          duration: number;
+                        } | null>;
+                      }
+                    ).getCanvas(sourceTime);
+
+                    if (frameResult && frameResult.canvas) {
+                      lastDecodedFrames.set(clip.id, {
+                        frameIndex: currentFrameIndex,
+                        canvas: frameResult.canvas,
+                        duration: frameResult.duration,
+                      });
                     }
-                  ).getCanvas(sourceTime);
+                  }
 
                   if (!isActive) return null;
 
@@ -5947,7 +6075,9 @@ export const Preview: React.FC = () => {
     if (!mediaItem) return null;
 
     let src: string | null = null;
-    if (mediaItem.blob) {
+    if (mediaItem.filePath) {
+      src = getMediaSourceUrl(mediaItem);
+    } else if (mediaItem.blob) {
       src = URL.createObjectURL(mediaItem.blob);
     } else if (mediaItem.originalUrl) {
       src = mediaItem.originalUrl;

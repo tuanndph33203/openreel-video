@@ -14,6 +14,9 @@ import type {
   ConversionOptions,
 } from "mediabunny";
 
+import { createMediaBunnySource } from "../utils/media-source";
+import type { MediaItem } from "../types/project";
+
 export const SUPPORTED_VIDEO_FORMATS = [
   "video/mp4",
   "video/webm",
@@ -70,13 +73,13 @@ export class ExportFrameDecoder {
   private input: MediaBunnyInput | null = null;
   private sink: InstanceType<typeof import("mediabunny").CanvasSink> | null = null;
   private mediabunny: typeof import("mediabunny");
-  private file: File | Blob;
+  private file: File | Blob | MediaItem;
   private width?: number;
   private initialized = false;
   private reusableCanvas: OffscreenCanvas | null = null;
   private reusableCtx: OffscreenCanvasRenderingContext2D | null = null;
 
-  constructor(mediabunny: typeof import("mediabunny"), file: File | Blob, width?: number) {
+  constructor(mediabunny: typeof import("mediabunny"), file: File | Blob | MediaItem, width?: number) {
     this.mediabunny = mediabunny;
     this.file = file;
     this.width = width;
@@ -85,10 +88,10 @@ export class ExportFrameDecoder {
   async initialize(): Promise<boolean> {
     if (this.initialized) return true;
 
-    const { Input, ALL_FORMATS, BlobSource, CanvasSink } = this.mediabunny;
+    const { Input, ALL_FORMATS, CanvasSink } = this.mediabunny;
 
     this.input = new Input({
-      source: new BlobSource(this.file),
+      source: createMediaBunnySource(this.mediabunny, this.file as any),
       formats: ALL_FORMATS,
     }) as unknown as MediaBunnyInput;
 
@@ -186,7 +189,7 @@ export class MediaBunnyEngine {
     return this.frameCache.size;
   }
 
-  async createExportDecoder(mediaId: string, file: File | Blob, width?: number): Promise<ExportFrameDecoder | null> {
+  async createExportDecoder(mediaId: string, file: File | Blob | MediaItem, width?: number): Promise<ExportFrameDecoder | null> {
     this.ensureInitialized();
 
     const existing = this.exportDecoders.get(mediaId);
@@ -229,12 +232,12 @@ export class MediaBunnyEngine {
     }
   }
 
-  async createInput(file: File | Blob): Promise<MediaBunnyInput> {
+  async createInput(file: File | Blob | MediaItem): Promise<MediaBunnyInput> {
     this.ensureInitialized();
-    const { Input, ALL_FORMATS, BlobSource } = this.mediabunny!;
+    const { Input, ALL_FORMATS } = this.mediabunny!;
 
     return new Input({
-      source: new BlobSource(file),
+      source: createMediaBunnySource(this.mediabunny!, file as any),
       formats: ALL_FORMATS,
     });
   }
@@ -734,7 +737,6 @@ export class MediaBunnyEngine {
       Output,
       Conversion,
       ALL_FORMATS,
-      BlobSource,
       BufferTarget,
       Mp4OutputFormat,
       WebMOutputFormat,
@@ -749,7 +751,7 @@ export class MediaBunnyEngine {
     }
 
     const input = new Input({
-      source: new BlobSource(file),
+      source: createMediaBunnySource(this.mediabunny!, file as any),
       formats: ALL_FORMATS,
     });
     let outputFormat;
@@ -898,7 +900,6 @@ export class MediaBunnyEngine {
       Output,
       Conversion,
       ALL_FORMATS,
-      BlobSource,
       BufferTarget,
       Mp4OutputFormat,
     } = this.mediabunny!;
@@ -908,7 +909,7 @@ export class MediaBunnyEngine {
     }
 
     const input = new Input({
-      source: new BlobSource(file),
+      source: createMediaBunnySource(this.mediabunny!, file as any),
       formats: ALL_FORMATS,
     });
 

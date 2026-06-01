@@ -99,6 +99,18 @@ const DEFAULT_TRANSCODE_OPTIONS: Required<TranscodeOptions> = {
   enableRowMt: true,
 };
 
+function isTauri(): boolean {
+  return typeof window !== "undefined" && (window as any).__TAURI_INTERNALS__ !== undefined;
+}
+
+async function invokeTauri<T>(cmd: string, args?: Record<string, any>): Promise<T> {
+  const internals = (window as any).__TAURI_INTERNALS__;
+  if (!internals || !internals.invoke) {
+    throw new Error("Tauri IPC bridge not found");
+  }
+  return internals.invoke(cmd, args);
+}
+
 export class FFmpegFallback {
   private ffmpeg: FFmpegInstance | null = null;
   private loaded = false;
@@ -116,6 +128,10 @@ export class FFmpegFallback {
   }
 
   async load(): Promise<void> {
+    if (isTauri()) {
+      this.loaded = true;
+      return;
+    }
     if (this.loaded) return;
     if (this.loading) return this.loading;
 
@@ -301,6 +317,29 @@ export class FFmpegFallback {
     streamIndex?: number,
     options: AudioExtractionOptions = {},
   ): Promise<Blob> {
+    if (isTauri() && (file as any).tauriPath) {
+      const path = (file as any).tauriPath;
+      const args = ["-i", path];
+      if (streamIndex !== undefined && streamIndex > 0) {
+        args.push("-map", `0:a:${streamIndex}`);
+      } else {
+        args.push("-vn");
+      }
+      args.push(
+        "-acodec", "pcm_f32le",
+        "-ar", "48000",
+        "-ac", "2",
+        "-f", "wav",
+        "-"
+      );
+      try {
+        const wavBytes = await invokeTauri<number[]>("run_ffmpeg_binary", { args });
+        return new Blob([new Uint8Array(wavBytes)], { type: "audio/wav" });
+      } catch (err) {
+        console.error("Native FFmpeg WAV extraction failed, falling back:", err);
+      }
+    }
+
     await this.load();
     this.ensureLoaded();
 

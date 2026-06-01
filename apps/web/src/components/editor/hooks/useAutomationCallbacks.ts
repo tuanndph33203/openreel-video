@@ -59,8 +59,10 @@ export function useAutomationCallbacks() {
     settingsOpen,
     customOpenAiBaseUrl,
     customAnthropicBaseUrl,
+    customGeminiBaseUrl,
     customOpenAiModel,
     customAnthropicModel,
+    customGeminiModel,
   } = useSettingsStore.getState();
 
   const hasElevenLabsKey = configuredServices.includes("elevenlabs");
@@ -126,14 +128,24 @@ export function useAutomationCallbacks() {
             }
 
             aiConfig = {
-              provider: (config.aiProvider || "openai") as "openai" | "anthropic",
+              provider: (config.aiProvider || "openai") as "openai" | "anthropic" | "gemini",
               apiKey,
               tone: config.aiTone || "natural and fluent",
               videoContext: config.videoContext || undefined,
               glossary,
               temperature: config.aiTemperature !== undefined ? config.aiTemperature : undefined,
-              customBaseUrl: config.aiProvider === "openai" ? customOpenAiBaseUrl : customAnthropicBaseUrl,
-              customModel: config.aiProvider === "openai" ? customOpenAiModel : customAnthropicModel,
+              customBaseUrl:
+                config.aiProvider === "openai"
+                  ? customOpenAiBaseUrl
+                  : config.aiProvider === "anthropic"
+                    ? customAnthropicBaseUrl
+                    : customGeminiBaseUrl,
+              customModel:
+                config.aiProvider === "openai"
+                  ? customOpenAiModel
+                  : config.aiProvider === "anthropic"
+                    ? customAnthropicModel
+                    : customGeminiModel,
             };
           }
         } catch (err) {
@@ -200,7 +212,7 @@ export function useAutomationCallbacks() {
       toast.error("Tạo Phụ Đề Thất Bại", err instanceof Error ? err.message : String(err));
       throw err;
     }
-  }, [customOpenAiBaseUrl, customAnthropicBaseUrl, customOpenAiModel, customAnthropicModel]);
+  }, [customOpenAiBaseUrl, customAnthropicBaseUrl, customGeminiBaseUrl, customOpenAiModel, customAnthropicModel, customGeminiModel]);
 
   const generateTTS = useCallback(async (subtitles: Subtitle[], project: Project): Promise<any[]> => {
     const config = project.settings.automationConfig;

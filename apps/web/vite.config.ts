@@ -130,6 +130,10 @@ export default defineConfig({
                     "anthropic-version": "2023-06-01",
                   }),
                 },
+                gemini: {
+                  baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+                  authHeaders: (key) => ({ Authorization: `Bearer ${key}` }),
+                },
               };
 
               const config = SERVICE_CONFIGS[service];

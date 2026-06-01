@@ -57,10 +57,10 @@ export class AudioTimeStretcher {
     // WSOLA Parameters
     // Tuning N=1024 (~21ms) and Ho=128 (87.5% overlap) yields excellent speech quality 
     // and runs 4x faster than N=2048, preventing long processing times.
-    const N = 1024; 
-    const Ho = Math.floor(N / 8); // Synthesis Hop Size (128 samples, high overlap for smoothness)
-    const delta = Math.floor(N / 4); // Search tolerance (256 samples)
-    const L = Math.floor(N / 2); // Similarity correlation window (512 samples)
+    const N = 2048; 
+    const Ho = Math.floor(N / 8); // Synthesis Hop Size (256 samples, high overlap for smoothness)
+    const delta = Math.floor(N / 4); // Search tolerance (512 samples)
+    const L = Math.floor(N / 2); // Similarity correlation window (1024 samples)
 
     // Window function: Hann window for smooth fading
     const hannWindow = new Float32Array(N);

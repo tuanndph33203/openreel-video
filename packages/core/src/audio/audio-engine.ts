@@ -23,6 +23,7 @@ import {
 import { scheduleVolumeAutomationOnGain } from "./clip-volume-automation";
 import { AudioTimeStretcher } from "./time-stretching";
 import { getSpeedEngine } from "../video/speed-engine";
+import { createMediaBunnySource } from "../utils/media-source";
 
 const SEGMENTED_AUDIO_DECODE_THRESHOLD_SECONDS = 120;
 
@@ -38,7 +39,7 @@ class SegmentedAudioDecoder {
   private initialized = false;
 
   constructor(
-    private readonly file: File | Blob,
+    private readonly file: File | Blob | MediaItem,
     private readonly audioTrackIndex: number = 0,
   ) {}
 
@@ -46,11 +47,11 @@ class SegmentedAudioDecoder {
     if (this.initialized) return true;
 
     try {
-      const { Input, ALL_FORMATS, BlobSource, AudioBufferSink } =
+      const { Input, ALL_FORMATS, AudioBufferSink } =
         await import("mediabunny");
 
       this.input = new Input({
-        source: new BlobSource(this.file),
+        source: createMediaBunnySource(await import("mediabunny"), this.file as any),
         formats: ALL_FORMATS,
       }) as unknown as MediaBunnyAudioInput;
 
@@ -790,7 +791,7 @@ export class AudioEngine {
     mediaItem: MediaItem,
     audioTrackIndex: number = 0,
   ): Promise<SegmentedAudioDecoder | null> {
-    if (!mediaItem.blob) {
+    if (!mediaItem.blob && !mediaItem.filePath) {
       return null;
     }
 
@@ -800,7 +801,7 @@ export class AudioEngine {
       return cached;
     }
 
-    const decoder = new SegmentedAudioDecoder(mediaItem.blob, audioTrackIndex);
+    const decoder = new SegmentedAudioDecoder(mediaItem, audioTrackIndex);
     const initialized = await decoder.initialize();
     if (!initialized) {
       return null;

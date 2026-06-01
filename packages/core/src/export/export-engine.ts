@@ -440,13 +440,13 @@ export class ExportEngine {
           const mediaItem = (project.mediaLibrary?.items || []).find(
             (m) => m.id === clip.mediaId,
           );
-          if (mediaItem?.blob && !videoMediaIds.includes(mediaItem.id)) {
+          if ((mediaItem?.blob || mediaItem?.filePath) && !videoMediaIds.includes(mediaItem.id)) {
             videoMediaIds.push(mediaItem.id);
             try {
               console.log(`[ExportEngine] Creating decoder for video item: ${mediaItem.id}`);
               await mediaEngine.createExportDecoder(
                 mediaItem.id,
-                mediaItem.blob,
+                mediaItem,
                 fullSettings.width,
               );
             } catch (err) {

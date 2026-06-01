@@ -44,6 +44,7 @@ import { TemplatesTab } from "./panels/TemplatesTab";
 import { useTtsAudioStore } from "../../stores/tts-store";
 import { toast } from "../../stores/notification-store";
 import { saveFileHandle, saveDirectoryHandle } from "../../services/media-storage";
+import { isTauri, invokeTauri } from "../../bridges/tauri-bridge";
 import {
   IconButton,
   Input,
@@ -893,9 +894,39 @@ export const AssetsPanel: React.FC = () => {
     [addMediaToTimeline],
   );
 
-  const triggerFileInput = useCallback(() => {
-    fileInputRef.current?.click();
-  }, []);
+  const triggerFileInput = useCallback(async () => {
+    if (isTauri()) {
+      try {
+        const filePath = await invokeTauri<string | null>("select_open_file", {
+          filters: ["mp4", "mov", "webm", "mkv", "mp3", "wav", "aac", "ogg", "flac", "jpg", "jpeg", "png", "gif", "webp"],
+        });
+        if (filePath) {
+          setIsImporting(true);
+          const fileName = filePath.split(/[/\\]/).pop() || "media";
+          const ext = fileName.split(".").pop()?.toLowerCase() || "";
+          let mimeType = "video/mp4";
+          if (["jpg", "jpeg", "png", "gif", "webp"].includes(ext)) {
+            mimeType = `image/${ext === "jpg" ? "jpeg" : ext}`;
+          } else if (["mp3", "wav", "aac", "ogg", "flac"].includes(ext)) {
+            mimeType = `audio/${ext === "mp3" ? "mpeg" : ext}`;
+          } else if (["mov", "mkv", "webm"].includes(ext)) {
+            mimeType = `video/${ext === "mov" ? "quicktime" : ext}`;
+          }
+          setImportProgress(`Importing native asset ${fileName}...`);
+          const mockFile = new File([], fileName, { type: mimeType });
+          (mockFile as any).tauriPath = filePath;
+          await importMedia(mockFile);
+        }
+      } catch (error) {
+        console.error("Native file import failed:", error);
+      } finally {
+        setIsImporting(false);
+        setImportProgress("");
+      }
+    } else {
+      fileInputRef.current?.click();
+    }
+  }, [importMedia]);
 
   const handleImportBackground = useCallback(
     async (preset: BackgroundPreset) => {
