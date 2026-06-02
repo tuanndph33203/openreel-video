@@ -971,8 +971,15 @@ export class VideoEffectsEngine {
     image: ImageBitmap,
     effects: Effect[],
   ): Promise<ImageBitmap> {
-    const canvas = new OffscreenCanvas(image.width, image.height);
-    const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+    const canvas = typeof document !== "undefined"
+      ? document.createElement("canvas")
+      : new OffscreenCanvas(image.width, image.height);
+    if (canvas instanceof HTMLCanvasElement) {
+      canvas.width = image.width;
+      canvas.height = image.height;
+    }
+    console.log("[VideoEffectsEngine] applyEffectsCPU canvas constructor:", canvas.constructor.name);
+    const ctx = canvas.getContext("2d", { willReadFrequently: true }) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 
     const cssFilters: string[] = [];
     const pixelEffects: Effect[] = [];
@@ -1012,7 +1019,7 @@ export class VideoEffectsEngine {
   }
 
   private async applyEffectPixelLevel(
-    ctx: OffscreenCanvasRenderingContext2D,
+    ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
     effect: Effect,
     width: number,
     height: number,

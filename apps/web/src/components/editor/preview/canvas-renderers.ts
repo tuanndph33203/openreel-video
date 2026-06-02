@@ -1385,6 +1385,9 @@ const renderShapeOnly = (
   canvasWidth: number,
   canvasHeight: number,
 ): void => {
+  if (!ctx.canvas || ctx.canvas.width === 0 || ctx.canvas.height === 0) {
+    return;
+  }
   const { shapeType, style, transform } = shapeClip;
   const baseSize = Math.min(canvasWidth, canvasHeight);
   const shapeSize = baseSize * 0.15;

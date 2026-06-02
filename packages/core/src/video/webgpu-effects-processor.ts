@@ -182,10 +182,10 @@ export class WebGPUEffectsProcessor {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
-    // Blur uniform buffer (16 bytes)
+    // Blur uniform buffer (32 bytes)
     this.blurUniformBuffer = this.device.createBuffer({
       label: "Blur Uniform Buffer",
-      size: 16,
+      size: 32,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 

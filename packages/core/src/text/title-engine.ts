@@ -54,16 +54,21 @@ export class TitleEngine {
     | null = null;
 
   initialize(width: number = 1920, height: number = 1080): void {
-    if (typeof OffscreenCanvas !== "undefined") {
-      this.canvas = new OffscreenCanvas(width, height);
-    } else {
+    if (typeof document !== "undefined") {
       this.canvas = document.createElement("canvas");
       this.canvas.width = width;
       this.canvas.height = height;
+    } else if (typeof OffscreenCanvas !== "undefined") {
+      this.canvas = new OffscreenCanvas(width, height);
+    } else {
+      this.canvas = null;
     }
-    this.ctx = this.canvas.getContext("2d") as
-      | CanvasRenderingContext2D
-      | OffscreenCanvasRenderingContext2D;
+
+    if (this.canvas) {
+      this.ctx = this.canvas.getContext("2d") as
+        | CanvasRenderingContext2D
+        | OffscreenCanvasRenderingContext2D;
+    }
   }
 
   createTextClip(options: CreateTextClipOptions): TextClip {
@@ -218,12 +223,14 @@ export class TitleEngine {
     let canvas: HTMLCanvasElement | OffscreenCanvas;
     let ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 
-    if (typeof OffscreenCanvas !== "undefined") {
-      canvas = new OffscreenCanvas(width, height);
-    } else {
+    if (typeof document !== "undefined") {
       canvas = document.createElement("canvas");
       canvas.width = width;
       canvas.height = height;
+    } else if (typeof OffscreenCanvas !== "undefined") {
+      canvas = new OffscreenCanvas(width, height);
+    } else {
+      throw new Error("Canvas context is not available");
     }
     ctx = canvas.getContext("2d") as
       | CanvasRenderingContext2D
@@ -470,10 +477,21 @@ export class TitleEngine {
         ? style.fontWeight.toString()
         : style.fontWeight;
 
-    ctx.font = `${style.fontStyle} ${fontWeight} ${style.fontSize}px "${style.fontFamily}"`;
+    const fontKey = `${style.fontStyle} ${fontWeight} ${style.fontSize}px "${style.fontFamily}"`;
+    ctx.font = fontKey;
     ctx.fillStyle = style.color;
     ctx.textAlign = style.textAlign as CanvasTextAlign;
     ctx.textBaseline = "middle";
+
+    if (typeof document !== "undefined" && document.fonts) {
+      try {
+        if (!document.fonts.check(fontKey)) {
+          document.fonts.load(fontKey).catch(() => {});
+        }
+      } catch (e) {
+        // Ignore font loading check/load errors
+      }
+    }
     if (style.shadowColor) {
       ctx.shadowColor = style.shadowColor;
       ctx.shadowBlur = style.shadowBlur ?? 0;
