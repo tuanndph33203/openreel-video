@@ -31,7 +31,7 @@ export function buildSystemPrompt(settings: TranslationSettings, isUltraShort = 
     const viRules = isVietnamese ? "\n- Dich tu nhien (dung Ad, bọn mình, tụi mình). TUYET DOI KHONG gop dong. Giu nguyen so dong." : "";
     return `Translate given lines from ${settings.sourceLanguage} to ${settings.targetLanguage}.${viRules}
 Rules:
-- Output MUST be a valid JSON array of strings: ["translation_1", "translation_2", ...]
+- Output MUST be a valid JSON object containing an array of strings under the key "translations": {"translations": ["translation_1", "translation_2", ...]}
 - Length of the array MUST be exactly identical to the input line count.
 - NO explanations, NO markdown, NO merged lines.`;
   }
@@ -70,7 +70,7 @@ Tone: ${settings.tone || "natural and fluent"}. Topic: ${settings.topic || "N/A"
 
 Task: Translate the given subtitle lines.
 Rules:
-- Output MUST be a valid JSON array of strings: ["translation_1", "translation_2", ...]
+- Output MUST be a valid JSON object containing an array of strings under the key "translations": {"translations": ["translation_1", "translation_2", ...]}
 - CRITICAL: The length of the returned array MUST be exactly the same as the input lines. Do NOT combine, merge, or omit any lines. Keep one-to-one correspondence in the exact same order.
 - Never translate word-by-word.
 - No conversational filler, no markdown, no explanation.${viRules}${glossaryRule}`.trim();
@@ -88,13 +88,13 @@ ASR Typo Correction Guide:
   * "调装备" or "挑装备" -> "掉装备" (drop gear upon death)
   * "爆" in "爆装备" -> "掉/落" (dropped gear)
   * "女" near names or ends of phrases -> "呢" or appropriate sentence particle
-  * "怪兴" -> "怪也被" or "怪都被" or similar contextually correct phrase
+  * "怪兴" -> "怪也被" or "怪 đều bị" or similar contextually correct phrase
   * "扶着" in targeting contexts -> "盯着" or "被盯着"
   * "熬熬" -> "嗷嗷" (crying out)
   * "刺魂风" -> "刺魂蜂" (ASR sting bee name correction)
   * "叶无梦" / "夜无梦" -> "夜无梦" or "叶无梦" (ASR homophone name normalization)
 - Do NOT translate. Keep the output 100% in Simplified Chinese (zh-CN).
-- Maintain EXACTLY the same number of lines. Output MUST be a valid JSON array of strings: ["corrected_1", "corrected_2", ...]
+- Maintain EXACTLY the same number of lines. Output MUST be a valid JSON object containing an array of strings under the key "translations": {"translations": ["corrected_1", "corrected_2", ...]}
 - Ensure each line corresponds exactly to the input line at the same index.
 - Do NOT merge, omit, or combine lines.
 - No conversational filler, no markdown, no explanation.`;
@@ -295,7 +295,7 @@ export function buildRequestBody(
   payload: any,
   systemPrompt: string,
   resolvedModel: string,
-  provider: "openai" | "anthropic",
+  provider: "openai" | "anthropic" | "gemini",
   isMimo: boolean,
   lineCount: number,
   temperature = 0.5
@@ -308,7 +308,7 @@ export function buildRequestBody(
 
   const userContent = typeof payload === 'string' ? payload : JSON.stringify(payload);
 
-  if (provider === 'openai') {
+  if (provider === 'openai' || provider === 'gemini') {
     const body: any = {
       model: resolvedModel,
       messages: [
@@ -340,12 +340,13 @@ export function buildRequestBody(
   };
 }
 
+
 export async function translateBatchWithRetry(
   batchLines: Array<{ id: string; text: string }>,
   settings: TranslationSettings,
   url: string,
   headers: Record<string, string>,
-  provider: "openai" | "anthropic",
+  provider: "openai" | "anthropic" | "gemini",
   resolvedModel: string,
   isMimo: boolean,
   previousContext?: string[],
@@ -354,13 +355,40 @@ export async function translateBatchWithRetry(
   const parseResponse = (raw: string) => {
     let text = raw.trim();
     let arr: any[] = [];
+
+    // Fast-path: Thử parse trực tiếp JSON để tránh Regex overhead
+    try {
+      const direct = JSON.parse(text);
+      if (Array.isArray(direct)) {
+        arr = direct;
+      } else if (direct && typeof direct === 'object') {
+        if (direct.translations && Array.isArray(direct.translations)) {
+          arr = direct.translations.map((t: any) => {
+            if (typeof t === 'string') return t;
+            if (t && typeof t === 'object' && t.text !== undefined) return t.text;
+            return '';
+          });
+        } else {
+          for (const key of Object.keys(direct)) {
+            if (Array.isArray(direct[key])) {
+              arr = direct[key].map((t: any) => typeof t === 'string' ? t : (t && t.text ? t.text : ''));
+              break;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      // Direct JSON parse failed, proceed to robust Regex fallbacks below
+    }
     
     // Attempt 1: Match a JSON array [ ... ]
-    const arrayMatch = text.match(/\[[\s\S]*\]/);
-    if (arrayMatch) {
-      try {
-        arr = JSON.parse(arrayMatch[0]);
-      } catch (e) {}
+    if (!Array.isArray(arr) || arr.length === 0) {
+      const arrayMatch = text.match(/\[[\s\S]*\]/);
+      if (arrayMatch) {
+        try {
+          arr = JSON.parse(arrayMatch[0]);
+        } catch (e) {}
+      }
     }
     
     // Attempt 2: Match a JSON object { ... } and check if it has translations or array properties
@@ -420,6 +448,7 @@ export async function translateBatchWithRetry(
     return map;
   };
 
+
   const callAIOnce = async (userPrompt: string, systemPrompt: string, temperature: number) => {
     const requestBody = buildRequestBody(
       userPrompt,
@@ -449,7 +478,7 @@ export async function translateBatchWithRetry(
       throw new Error(`CONTENT_FILTER: ${filterMsg}`);
     }
 
-    const rawContent = provider === 'openai'
+    const rawContent = (provider === 'openai' || provider === 'gemini')
       ? (json.choices?.[0]?.message?.content ?? '')
       : (json.content?.[0]?.text ?? '');
 
@@ -495,7 +524,7 @@ export async function recursiveBatchTranslate(
   settings: TranslationSettings,
   url: string,
   headers: Record<string, string>,
-  provider: "openai" | "anthropic",
+  provider: "openai" | "anthropic" | "gemini",
   resolvedModel: string,
   isMimo: boolean,
   previousContext?: string[],
@@ -574,7 +603,7 @@ export async function sanitizeBatchWithRetry(
   settings: TranslationSettings,
   url: string,
   headers: Record<string, string>,
-  provider: "openai" | "anthropic",
+  provider: "openai" | "anthropic" | "gemini",
   resolvedModel: string,
   isMimo: boolean,
   previousContext?: string[],
@@ -583,13 +612,40 @@ export async function sanitizeBatchWithRetry(
   const parseResponse = (raw: string) => {
     let text = raw.trim();
     let arr: any[] = [];
-    
+
+    // Fast-path: Thử parse trực tiếp JSON để tránh Regex overhead
+    try {
+      const direct = JSON.parse(text);
+      if (Array.isArray(direct)) {
+        arr = direct;
+      } else if (direct && typeof direct === 'object') {
+        if (direct.translations && Array.isArray(direct.translations)) {
+          arr = direct.translations.map((t: any) => {
+            if (typeof t === 'string') return t;
+            if (t && typeof t === 'object' && t.text !== undefined) return t.text;
+            return '';
+          });
+        } else {
+          for (const key of Object.keys(direct)) {
+            if (Array.isArray(direct[key])) {
+              arr = direct[key].map((t: any) => typeof t === 'string' ? t : (t && t.text ? t.text : ''));
+              break;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      // Direct JSON parse failed, proceed to robust Regex fallbacks below
+    }
+
     // Attempt 1: Match a JSON array [ ... ]
-    const arrayMatch = text.match(/\[[\s\S]*\]/);
-    if (arrayMatch) {
-      try {
-        arr = JSON.parse(arrayMatch[0]);
-      } catch (e) {}
+    if (!Array.isArray(arr) || arr.length === 0) {
+      const arrayMatch = text.match(/\[[\s\S]*\]/);
+      if (arrayMatch) {
+        try {
+          arr = JSON.parse(arrayMatch[0]);
+        } catch (e) {}
+      }
     }
     
     // Attempt 2: Direct JSON parse
@@ -652,7 +708,7 @@ export async function sanitizeBatchWithRetry(
       throw new Error(`CONTENT_FILTER: ${filterMsg}`);
     }
 
-    const rawContent = provider === 'openai'
+    const rawContent = (provider === 'openai' || provider === 'gemini')
       ? (json.choices?.[0]?.message?.content ?? '')
       : (json.content?.[0]?.text ?? '');
 
@@ -681,7 +737,7 @@ export async function recursiveBatchSanitize(
   settings: TranslationSettings,
   url: string,
   headers: Record<string, string>,
-  provider: "openai" | "anthropic",
+  provider: "openai" | "anthropic" | "gemini",
   resolvedModel: string,
   isMimo: boolean,
   previousContext?: string[],
@@ -783,7 +839,7 @@ export interface TranscriptionConfig {
   maxWordsPerSegment?: number;
   translationMethod?: "google" | "ai";
   aiConfig?: {
-    provider: "openai" | "anthropic";
+    provider: "openai" | "anthropic" | "gemini";
     apiKey: string;
     tone?: string;
     videoContext?: string;
@@ -1029,7 +1085,7 @@ export class TranscriptionService {
     const textSubtitles = bestSubtitles.filter(s => s.text && s.text.trim().length > 0);
     if (textSubtitles.length === 0) return bestSubtitles;
 
-    const url = `/api/proxy/${provider}${provider === 'openai' ? '/chat/completions' : '/messages'}`;
+    const url = `/api/proxy/${provider}${(provider === 'openai' || provider === 'gemini') ? '/chat/completions' : '/messages'}`;
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'x-proxy-api-key': aiConfig.apiKey
@@ -1043,7 +1099,9 @@ export class TranscriptionService {
       (aiConfig.customModel && aiConfig.customModel.toLowerCase().includes('mimo'))
     );
     let resolvedModel;
-    if (provider === 'openai') {
+    if (provider === 'gemini') {
+      resolvedModel = aiConfig.customModel ? aiConfig.customModel.trim() : 'gemini-1.5-flash';
+    } else if (provider === 'openai') {
       if (isMimo) {
         resolvedModel = aiConfig.customModel?.trim() ? aiConfig.customModel.trim() : 'mimo-v2.5';
       } else {
@@ -1180,7 +1238,7 @@ export class TranscriptionService {
     const textSubtitles = subtitles.filter(s => s.text && s.text.trim().length > 0);
     if (textSubtitles.length === 0) return subtitles;
 
-    const url = `/api/proxy/${provider}${provider === 'openai' ? '/chat/completions' : '/messages'}`;
+    const url = `/api/proxy/${provider}${(provider === 'openai' || provider === 'gemini') ? '/chat/completions' : '/messages'}`;
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'x-proxy-api-key': aiConfig.apiKey
@@ -1194,7 +1252,9 @@ export class TranscriptionService {
       (aiConfig.customModel && aiConfig.customModel.toLowerCase().includes('mimo'))
     );
     let resolvedModel;
-    if (provider === 'openai') {
+    if (provider === 'gemini') {
+      resolvedModel = aiConfig.customModel ? aiConfig.customModel.trim() : 'gemini-1.5-flash';
+    } else if (provider === 'openai') {
       if (isMimo) {
         resolvedModel = aiConfig.customModel?.trim() ? aiConfig.customModel.trim() : 'mimo-v2.5';
       } else {
@@ -1348,6 +1408,52 @@ export class TranscriptionService {
     clip: Clip,
     mediaItem: MediaItem,
   ): Promise<Blob> {
+    const isTauri = typeof window !== "undefined" && (window as any).__TAURI_INTERNALS__ !== undefined;
+    if (isTauri && mediaItem.filePath) {
+      try {
+        console.log("[TranscriptionService] Tauri detected, extracting audio natively using FFmpeg:", mediaItem.filePath);
+        const { invoke } = await import("@tauri-apps/api/core");
+        const speed = clip.speed || 1.0;
+        const inPoint = clip.inPoint || 0;
+        const duration = clip.duration || 0;
+        const originalDurationConsumed = duration * speed;
+        
+        const args = [
+          "-ss", inPoint.toString(),
+          "-i", mediaItem.filePath,
+          "-t", originalDurationConsumed.toString(),
+          "-vn",
+          "-acodec", "pcm_s16le",
+          "-ac", "1",
+          "-ar", "16000",
+        ];
+        
+        if (speed !== 1.0) {
+          const filters: string[] = [];
+          let temp = speed;
+          while (temp > 2.0) {
+            filters.push("atempo=2.0");
+            temp /= 2.0;
+          }
+          while (temp < 0.5) {
+            filters.push("atempo=0.5");
+            temp /= 0.5;
+          }
+          if (temp !== 1.0) {
+            filters.push(`atempo=${temp}`);
+          }
+          args.push("-filter:a", filters.join(","));
+        }
+        
+        args.push("-f", "wav", "-");
+        
+        const bytes = await invoke<number[]>("run_ffmpeg_binary", { args });
+        return new Blob([new Uint8Array(bytes)], { type: "audio/wav" });
+      } catch (err) {
+        console.error("[TranscriptionService] Native audio extraction failed, attempting fallback to browser-based extraction...", err);
+      }
+    }
+
     if (!this.audioContext) {
       this.audioContext = new AudioContext();
     }

@@ -1,5 +1,6 @@
 import type { Project, ProjectSettings } from "@openreel/core";
 import { v4 as uuidv4 } from "uuid";
+import { isTauri, invokeTauri } from "../bridges/tauri-bridge";
 
 interface FilePickerAcceptType {
   description: string;
@@ -166,7 +167,7 @@ type EventCallback = (data?: unknown) => void;
 class ProjectManager {
   private db: IDBDatabase | null = null;
   private listeners: Map<ProjectManagerEvent, Set<EventCallback>> = new Map();
-  private currentFileHandle: FileSystemFileHandle | null = null;
+  private currentFileHandle: FileSystemFileHandle | string | null = null;
 
   async initialize(): Promise<void> {
     this.db = await this.openDatabase();
@@ -260,13 +261,43 @@ class ProjectManager {
   }
 
   async saveProject(project: Project): Promise<boolean> {
-    if (this.currentFileHandle) {
+    if (isTauri() && typeof this.currentFileHandle === "string") {
+      try {
+        await invokeTauri("write_text_file", { path: this.currentFileHandle, content: JSON.stringify(project, null, 2) });
+        this.emit("projectSaved", { project });
+        return true;
+      } catch (err) {
+        console.error("[ProjectManager] Tauri save failed:", err);
+        return false;
+      }
+    }
+    if (this.currentFileHandle && typeof this.currentFileHandle !== "string") {
       return this.saveToFileHandle(project, this.currentFileHandle);
     }
     return this.saveProjectAs(project);
   }
 
   async saveProjectAs(project: Project): Promise<boolean> {
+    if (isTauri()) {
+      try {
+        const path = await invokeTauri<string | null>("select_save_file", {
+          suggestedName: project.name,
+          extension: "oreel",
+        });
+        if (path) {
+          await invokeTauri("write_text_file", { path, content: JSON.stringify(project, null, 2) });
+          this.currentFileHandle = path;
+          await this.addToRecent(project);
+          this.emit("projectSaved", { project });
+          return true;
+        }
+        return false;
+      } catch (err) {
+        console.error("[ProjectManager] Tauri save as failed:", err);
+        return false;
+      }
+    }
+
     if (!("showSaveFilePicker" in window)) {
       return this.downloadProject(project);
     }
@@ -339,6 +370,26 @@ class ProjectManager {
   }
 
   async openProject(): Promise<Project | null> {
+    if (isTauri()) {
+      try {
+        const path = await invokeTauri<string | null>("select_open_file", {
+          filters: ["oreel", "json"],
+        });
+        if (path) {
+          const content = await invokeTauri<string>("read_text_file", { path });
+          const project = JSON.parse(content) as Project;
+          this.currentFileHandle = path;
+          await this.addToRecent(project);
+          this.emit("projectOpened", { project });
+          return project;
+        }
+        return null;
+      } catch (error) {
+        console.error("[ProjectManager] Tauri open failed:", error);
+        return null;
+      }
+    }
+
     if ("showOpenFilePicker" in window) {
       try {
         const win = window as WindowWithFilePicker;
@@ -591,7 +642,7 @@ class ProjectManager {
     return map;
   }
 
-  getCurrentFileHandle(): FileSystemFileHandle | null {
+  getCurrentFileHandle(): FileSystemFileHandle | string | null {
     return this.currentFileHandle;
   }
 

@@ -51,6 +51,7 @@ import {
 } from "../media/gif-decoder";
 import { getParticleEngine } from "../effects/particle-engine";
 import { getPersonSegmentationEngine } from "../ai/person-segmentation-engine";
+import { createMediaBunnySource, isTauri } from "../utils/media-source";
 
 const DEFAULT_CACHE_CONFIG: FrameCacheConfig = {
   maxFrames: 100,
@@ -249,7 +250,7 @@ export class VideoEngine {
    * Much faster than video element seeking for export.
    */
   async decodeFrameWithMediaBunny(
-    blob: Blob,
+    source: Blob | MediaItem,
     time: number,
     width: number,
     _height: number,
@@ -262,7 +263,10 @@ export class VideoEngine {
       }
 
       if (mediaId) {
-        const exportDecoder = mediaEngine.getExportDecoder(mediaId);
+        let exportDecoder = mediaEngine.getExportDecoder(mediaId);
+        if (!exportDecoder) {
+          exportDecoder = await mediaEngine.createExportDecoder(mediaId, source, width);
+        }
         if (exportDecoder) {
           const canvas = await exportDecoder.getFrame(time);
           if (canvas) {
@@ -271,7 +275,7 @@ export class VideoEngine {
         }
       }
 
-      const result = await mediaEngine.getFrameAtTime(blob, time, width);
+      const result = await mediaEngine.getFrameAtTime(source as any, time, width);
       if (result?.canvas) {
         return createImageBitmap(result.canvas);
       }
@@ -340,7 +344,7 @@ export class VideoEngine {
       let frame1 = this.getCachedInterpFrame(cacheKey1);
       if (!frame1) {
         frame1 = await this.decodeFrameWithMediaBunny(
-          mediaItem.blob!,
+          mediaItem,
           timeBefore,
           width,
           height,
@@ -355,7 +359,7 @@ export class VideoEngine {
       let frame2 = this.getCachedInterpFrame(cacheKey2);
       if (!frame2) {
         frame2 = await this.decodeFrameWithMediaBunny(
-          mediaItem.blob!,
+          mediaItem,
           timeAfter,
           width,
           height,
@@ -404,7 +408,8 @@ export class VideoEngine {
    */
   async decodeFrameWithVideoElement(
     mediaId: string,
-    blob: Blob,
+    blob: Blob | null,
+    filePath: string | undefined,
     time: number,
     width: number,
     height: number,
@@ -412,7 +417,15 @@ export class VideoEngine {
     let cached = this.videoElementCache.get(mediaId);
 
     if (!cached) {
-      const url = URL.createObjectURL(blob);
+      let url = "";
+      if (isTauri() && filePath) {
+        const { convertFileSrc } = await import("@tauri-apps/api/core");
+        url = convertFileSrc(filePath);
+      } else if (blob) {
+        url = URL.createObjectURL(blob);
+      } else {
+        return null;
+      }
       const video = document.createElement("video");
       video.src = url;
       video.muted = true;
@@ -490,9 +503,6 @@ export class VideoEngine {
     return createImageBitmap(this.decodeCanvas);
   }
 
-  /**
-   * Clear the video element cache, releasing resources.
-   */
   clearVideoElementCache(): void {
     for (const [, cached] of this.videoElementCache) {
       cached.video.pause();
@@ -501,6 +511,15 @@ export class VideoEngine {
       URL.revokeObjectURL(cached.url);
     }
     this.videoElementCache.clear();
+
+    try {
+      const mediaEngine = getMediaEngine();
+      if (mediaEngine.isAvailable()) {
+        mediaEngine.disposeAllExportDecoders();
+      }
+    } catch (err) {
+      console.warn("[VideoEngine] Failed to dispose export decoders:", err);
+    }
   }
 
   private ensureInitialized(): void {
@@ -565,7 +584,13 @@ export class VideoEngine {
             track.type === "graphics") &&
           !track.hidden,
       )
-      .sort((a, b) => a.originalIndex - b.originalIndex);
+      .sort((a, b) => {
+        const aIsOverlay = a.track.type === "text" || a.track.type === "graphics";
+        const bIsOverlay = b.track.type === "text" || b.track.type === "graphics";
+        if (aIsOverlay && !bIsOverlay) return 1; // Render overlays after background tracks (on top)
+        if (!aIsOverlay && bIsOverlay) return -1; // Render background tracks before overlays (behind)
+        return b.originalIndex - a.originalIndex;
+      });
 
     if (
       !this.compositeCanvas ||
@@ -601,17 +626,26 @@ export class VideoEngine {
           const mediaItem = (mediaLibrary?.items || []).find(
             (m) => m.id === clipInfo.mediaId,
           );
-          if (!mediaItem?.blob) continue;
+          if (!mediaItem?.blob && !mediaItem?.filePath) continue;
 
           let bitmap: ImageBitmap | null = null;
           let bitmapFromCache = false;
 
           if (mediaItem.type === "image") {
             try {
-              if (isAnimatedGif(mediaItem.blob)) {
+              let imageBlob = mediaItem.blob;
+              if (!imageBlob && isTauri() && mediaItem.filePath) {
+                const { convertFileSrc } = await import("@tauri-apps/api/core");
+                const url = convertFileSrc(mediaItem.filePath);
+                const response = await fetch(url);
+                imageBlob = await response.blob();
+              }
+              if (!imageBlob) continue;
+
+              if (isAnimatedGif(imageBlob)) {
                 let gifCache = this.gifFrameCache.get(mediaItem.id);
                 if (!gifCache) {
-                  const newCache = await createGifFrameCache(mediaItem.blob);
+                  const newCache = await createGifFrameCache(imageBlob);
                   if (newCache) {
                     this.gifFrameCache.set(mediaItem.id, newCache);
                     gifCache = newCache;
@@ -626,7 +660,7 @@ export class VideoEngine {
                   bitmap = gifCache.frames[frameIndex];
                   bitmapFromCache = true;
                 } else {
-                  bitmap = await createImageBitmap(mediaItem.blob);
+                  bitmap = await createImageBitmap(imageBlob);
                 }
               } else {
                 const cached = this.staticImageCache.get(mediaItem.id);
@@ -634,7 +668,7 @@ export class VideoEngine {
                   bitmap = cached;
                   bitmapFromCache = true;
                 } else {
-                  bitmap = await createImageBitmap(mediaItem.blob);
+                  bitmap = await createImageBitmap(imageBlob);
                   this.staticImageCache.set(mediaItem.id, bitmap);
                   bitmapFromCache = true;
                 }
@@ -650,52 +684,63 @@ export class VideoEngine {
             const shouldInterpolate =
               clip.smoothSlowMo === true && effectiveSpeed < 1;
 
-            if (shouldInterpolate && mediaItem.metadata?.frameRate) {
-              bitmap = await this.decodeInterpolatedFrame(
-                clip,
-                mediaItem,
-                clipInfo.sourceTime,
-                time,
-                settings.width,
-                settings.height,
-              );
-            }
+            const cacheKey = this.getCacheKey(mediaItem.id, clipInfo.sourceTime);
+            const cachedFrame = this.frameCache.get(cacheKey);
 
-            if (!bitmap) {
-              const vidstabForDecode = getVidstabEngine();
-              const useStabilizedBlob = vidstabForDecode.hasStabilized(clip.id);
-              const decodeBlob = useStabilizedBlob
-                ? vidstabForDecode.getStabilizedBlob(clip.id)!
-                : mediaItem.blob;
-              const decodeTime = useStabilizedBlob
-                ? clipInfo.sourceTime - clip.inPoint
-                : clipInfo.sourceTime;
+            if (cachedFrame) {
+              this.cacheStats.hits++;
+              cachedFrame.lastAccessed = Date.now();
+              bitmap = await createImageBitmap(cachedFrame.image);
+            } else {
+              this.cacheStats.misses++;
 
-              bitmap = await this.decodeFrameWithMediaBunny(
-                decodeBlob,
-                decodeTime,
-                settings.width,
-                settings.height,
-                useStabilizedBlob ? `stabilized:${clip.id}` : clipInfo.mediaId,
-              );
-            }
-            if (!bitmap) {
-              const vidstabForDecode = getVidstabEngine();
-              const useStabilizedBlob = vidstabForDecode.hasStabilized(clip.id);
-              const decodeBlob = useStabilizedBlob
-                ? vidstabForDecode.getStabilizedBlob(clip.id)!
-                : mediaItem.blob;
-              const decodeTime = useStabilizedBlob
-                ? clipInfo.sourceTime - clip.inPoint
-                : clipInfo.sourceTime;
+              if (shouldInterpolate && mediaItem.metadata?.frameRate) {
+                bitmap = await this.decodeInterpolatedFrame(
+                  clip,
+                  mediaItem,
+                  clipInfo.sourceTime,
+                  time,
+                  width,
+                  height,
+                );
+              }
 
-              bitmap = await this.decodeFrameWithVideoElement(
-                useStabilizedBlob ? `stabilized:${clip.id}` : mediaItem.id,
-                decodeBlob,
-                decodeTime,
-                settings.width,
-                settings.height,
-              );
+              if (!bitmap) {
+                const vidstabForDecode = getVidstabEngine();
+                const useStabilizedBlob = vidstabForDecode.hasStabilized(clip.id);
+                const decodeTime = useStabilizedBlob
+                  ? clipInfo.sourceTime - clip.inPoint
+                  : clipInfo.sourceTime;
+
+                bitmap = await this.decodeFrameWithMediaBunny(
+                  useStabilizedBlob ? vidstabForDecode.getStabilizedBlob(clip.id)! : mediaItem,
+                  decodeTime,
+                  width,
+                  height,
+                  useStabilizedBlob ? `stabilized:${clip.id}` : clipInfo.mediaId,
+                );
+              }
+              if (!bitmap) {
+                const vidstabForDecode = getVidstabEngine();
+                const useStabilizedBlob = vidstabForDecode.hasStabilized(clip.id);
+                const decodeTime = useStabilizedBlob
+                  ? clipInfo.sourceTime - clip.inPoint
+                  : clipInfo.sourceTime;
+
+                bitmap = await this.decodeFrameWithVideoElement(
+                  useStabilizedBlob ? `stabilized:${clip.id}` : mediaItem.id,
+                  useStabilizedBlob ? vidstabForDecode.getStabilizedBlob(clip.id)! : mediaItem.blob,
+                  useStabilizedBlob ? undefined : mediaItem.filePath,
+                  decodeTime,
+                  width,
+                  height,
+                );
+              }
+
+              if (bitmap) {
+                const clone = await createImageBitmap(bitmap);
+                this.cacheFrame(cacheKey, clone, mediaItem.id);
+              }
             }
           }
 
@@ -1885,15 +1930,24 @@ export class VideoEngine {
     mediaItem: MediaItem,
     time: number,
   ): Promise<ImageBitmap | null> {
-    if (!mediaItem.blob) {
-      console.warn(`No blob available for media item ${mediaItem.id}`);
+    if (!mediaItem.blob && !mediaItem.filePath) {
+      console.warn(`No blob or filePath available for media item ${mediaItem.id}`);
       return null;
     }
 
     // Special handling for static images - they don't need mediabunny
     if (mediaItem.type === "image") {
       try {
-        return await createImageBitmap(mediaItem.blob);
+        let imageBlob = mediaItem.blob;
+        if (!imageBlob && isTauri() && mediaItem.filePath) {
+          const { convertFileSrc } = await import("@tauri-apps/api/core");
+          const url = convertFileSrc(mediaItem.filePath);
+          const response = await fetch(url);
+          imageBlob = await response.blob();
+        }
+        if (imageBlob) {
+          return await createImageBitmap(imageBlob);
+        }
       } catch (error) {
         console.warn(`Failed to create ImageBitmap from image: ${error}`);
         return null;
@@ -1902,11 +1956,11 @@ export class VideoEngine {
 
     this.ensureInitialized();
 
-    const { Input, ALL_FORMATS, BlobSource, VideoSampleSink } =
+    const { Input, ALL_FORMATS, VideoSampleSink } =
       this.mediabunny!;
 
     const input = new Input({
-      source: new BlobSource(mediaItem.blob),
+      source: createMediaBunnySource(this.mediabunny!, mediaItem),
       formats: ALL_FORMATS,
     });
 
@@ -1990,14 +2044,14 @@ export class VideoEngine {
   ): Promise<OffscreenCanvas | null> {
     this.ensureInitialized();
 
-    const { Input, ALL_FORMATS, BlobSource, CanvasSink } = this.mediabunny!;
+    const { Input, ALL_FORMATS, CanvasSink } = this.mediabunny!;
 
-    if (!mediaItem.blob) {
+    if (!mediaItem.blob && !mediaItem.filePath) {
       return null;
     }
 
     const input = new Input({
-      source: new BlobSource(mediaItem.blob),
+      source: createMediaBunnySource(this.mediabunny!, mediaItem),
       formats: ALL_FORMATS,
     });
 
@@ -2299,7 +2353,7 @@ export class VideoEngine {
   ): Promise<void> {
     this.ensureInitialized();
 
-    if (!mediaItem.blob) return;
+    if (!mediaItem.blob && !mediaItem.filePath) return;
 
     const frameDuration = 1 / frameRate;
     const startTime = Math.max(
@@ -2311,11 +2365,11 @@ export class VideoEngine {
       centerTime + this.cacheConfig.preloadAhead * frameDuration,
     );
 
-    const { Input, ALL_FORMATS, BlobSource, VideoSampleSink } =
+    const { Input, ALL_FORMATS, VideoSampleSink } =
       this.mediabunny!;
 
     const input = new Input({
-      source: new BlobSource(mediaItem.blob),
+      source: createMediaBunnySource(this.mediabunny!, mediaItem),
       formats: ALL_FORMATS,
     });
 
@@ -2390,7 +2444,7 @@ export class VideoEngine {
   }
 
   private async preloadFramesRange(
-    media: Blob | File,
+    media: Blob | File | any,
     mediaId: string,
     startTime: number,
     endTime: number,
@@ -2398,11 +2452,11 @@ export class VideoEngine {
   ): Promise<void> {
     this.ensureInitialized();
 
-    const { Input, ALL_FORMATS, BlobSource, VideoSampleSink } =
+    const { Input, ALL_FORMATS, VideoSampleSink } =
       this.mediabunny!;
 
     const input = new Input({
-      source: new BlobSource(media),
+      source: createMediaBunnySource(this.mediabunny!, media),
       formats: ALL_FORMATS,
     });
 

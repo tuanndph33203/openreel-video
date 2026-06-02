@@ -5,7 +5,7 @@ export interface AutomationConfig {
   sourceLanguage?: string;
   targetLanguage?: string;
   translationMethod?: "google" | "ai";
-  aiProvider?: "openai" | "anthropic";
+  aiProvider?: "openai" | "anthropic" | "gemini";
   aiTone?: string;
   videoContext?: string;
   glossaryText?: string;
@@ -57,6 +57,7 @@ export interface MediaItem {
   readonly name: string;
   readonly type: "video" | "audio" | "image";
   readonly fileHandle: FileSystemFileHandle | null;
+  readonly filePath?: string;
   readonly blob: Blob | null;
   readonly metadata: MediaMetadata;
   readonly thumbnailUrl: string | null;

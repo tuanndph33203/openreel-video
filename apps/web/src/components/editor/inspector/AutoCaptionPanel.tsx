@@ -207,12 +207,14 @@ export const AutoCaptionPanel: React.FC = () => {
     settingsOpen,
     customOpenAiBaseUrl,
     customAnthropicBaseUrl,
+    customGeminiBaseUrl,
     customOpenAiModel,
     customAnthropicModel,
+    customGeminiModel,
   } = useSettingsStore();
 
   const hasElevenLabsKey = configuredServices.includes("elevenlabs");
-  const hasAiKey = configuredServices.includes("openai") || configuredServices.includes("anthropic");
+  const hasAiKey = configuredServices.includes("openai") || configuredServices.includes("anthropic") || configuredServices.includes("gemini");
 
   const defaultProvider: TtsProvider =
     defaultTtsProvider === "elevenlabs" && hasElevenLabsKey
@@ -243,7 +245,13 @@ export const AutoCaptionPanel: React.FC = () => {
 
   // AI Translation configurations
   const [translationMethod, setTranslationMethod] = useState<"google" | "ai">("google");
-  const [aiProvider, setAiProvider] = useState<"openai" | "anthropic">(defaultLlmProvider === "anthropic" ? "anthropic" : "openai");
+  const [aiProvider, setAiProvider] = useState<"openai" | "anthropic" | "gemini">(
+    defaultLlmProvider === "anthropic"
+      ? "anthropic"
+      : defaultLlmProvider === "gemini"
+        ? "gemini"
+        : "openai"
+  );
   const [aiTone, setAiTone] = useState<string>("natural and fluent");
   const [videoContext, setVideoContext] = useState<string>("");
   const [glossaryText, setGlossaryText] = useState<string>("");
@@ -632,15 +640,28 @@ export const AutoCaptionPanel: React.FC = () => {
         }
         const apiKey = await getSecret(aiProvider);
         if (!apiKey) {
-          throw new Error(`API key for ${aiProvider === "openai" ? "OpenAI" : "Anthropic"} is not set. Please add it in Settings > API Keys.`);
+          let providerLabel = "OpenAI";
+          if (aiProvider === "anthropic") providerLabel = "Anthropic";
+          if (aiProvider === "gemini") providerLabel = "Google Gemini";
+          throw new Error(`API key for ${providerLabel} is not set. Please add it in Settings > API Keys.`);
         }
         aiConfig = {
           provider: aiProvider,
           apiKey,
           tone: aiTone,
           videoContext: videoContext.trim() || undefined,
-          customBaseUrl: aiProvider === "openai" ? customOpenAiBaseUrl : customAnthropicBaseUrl,
-          customModel: aiProvider === "openai" ? customOpenAiModel : customAnthropicModel,
+          customBaseUrl:
+            aiProvider === "openai"
+              ? customOpenAiBaseUrl
+              : aiProvider === "anthropic"
+                ? customAnthropicBaseUrl
+                : customGeminiBaseUrl,
+          customModel:
+            aiProvider === "openai"
+              ? customOpenAiModel
+              : aiProvider === "anthropic"
+                ? customAnthropicModel
+                : customGeminiModel,
         };
       }
 
@@ -822,7 +843,7 @@ export const AutoCaptionPanel: React.FC = () => {
                   <span className="text-[10px] text-text-secondary">AI Provider</span>
                   <Select
                     value={aiProvider}
-                    onValueChange={(val: "openai" | "anthropic") => {
+                    onValueChange={(val: "openai" | "anthropic" | "gemini") => {
                       setAiProvider(val);
                       saveAutomationConfig({ aiProvider: val });
                     }}
@@ -834,6 +855,7 @@ export const AutoCaptionPanel: React.FC = () => {
                     <SelectContent className="bg-background-secondary border-border">
                       <SelectItem value="openai">OpenAI (GPT-4o Mini)</SelectItem>
                       <SelectItem value="anthropic">Anthropic (Claude Haiku)</SelectItem>
+                      <SelectItem value="gemini">Google Gemini (Gemini 1.5 Flash)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

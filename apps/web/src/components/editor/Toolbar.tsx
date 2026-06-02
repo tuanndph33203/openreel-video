@@ -46,6 +46,7 @@ import { WatchFolderDialog } from "./WatchFolderDialog";
 import { useAutomationCallbacks } from "./hooks/useAutomationCallbacks";
 import { SettingsDialog } from "./settings/SettingsDialog";
 import { toast } from "../../stores/notification-store";
+import { isTauri, invokeTauri } from "../../bridges/tauri-bridge";
 import { useSettingsStore } from "../../stores/settings-store";
 import { useAnalytics, AnalyticsEvents } from "../../hooks/useAnalytics";
 import { startTour, ONBOARDING_KEY, startMoGraphTour, MOGRAPH_TOUR_KEY } from "./tour";
@@ -280,6 +281,49 @@ export const Toolbar: React.FC = () => {
     };
     const mime = mimeMap[ext] || "application/octet-stream";
 
+    if (isTauri()) {
+      const path = await invokeTauri<string | null>("select_save_file", {
+        suggestedName: filename,
+        extension: ext,
+      });
+      if (!path) {
+        throw new Error("Save picker cancelled");
+      }
+
+      let cursor = 0;
+      return {
+        seek(position: number) {
+          cursor = position;
+          return Promise.resolve();
+        },
+        async write(data: unknown) {
+          let bytes: Uint8Array;
+          if (data instanceof ArrayBuffer) {
+            bytes = new Uint8Array(data);
+          } else if (ArrayBuffer.isView(data)) {
+            bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+          } else {
+            bytes = new Uint8Array();
+          }
+          await invokeTauri("write_export_chunk", {
+            path,
+            chunk: Array.from(bytes),
+            position: cursor,
+          });
+          cursor += bytes.byteLength;
+        },
+        close() {
+          return Promise.resolve();
+        },
+        abort() {
+          return Promise.resolve();
+        },
+        truncate() {
+          return Promise.resolve();
+        },
+      } as unknown as FileSystemWritableFileStream;
+    }
+
     if ("showSaveFilePicker" in window) {
       const handle = await (window as unknown as {
         showSaveFilePicker: (opts: unknown) => Promise<FileSystemFileHandle>;
@@ -395,7 +439,7 @@ export const Toolbar: React.FC = () => {
           }
 
           if (finalResult?.success && finalResult.blob) {
-            if ("showSaveFilePicker" in window) {
+            if (isTauri() || "showSaveFilePicker" in window) {
               await finalResult.blob.stream().pipeTo(writable as unknown as WritableStream<Uint8Array>);
             } else {
               const url = URL.createObjectURL(finalResult.blob);

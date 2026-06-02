@@ -30,6 +30,12 @@ const DIRECT_CONFIG = {
       "anthropic-dangerous-direct-browser-access": "true",
     }),
   },
+  gemini: {
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+    authHeaders: (key: string): Record<string, string> => ({
+      Authorization: `Bearer ${key}`,
+    }),
+  },
 } as const;
 
 export type ApiService = keyof typeof DIRECT_CONFIG;
@@ -59,6 +65,8 @@ export async function apiFetch(
       customBaseUrl = settingsState.customOpenAiBaseUrl.trim().replace(/\/$/, "");
     } else if (service === "anthropic" && settingsState.customAnthropicBaseUrl) {
       customBaseUrl = settingsState.customAnthropicBaseUrl.trim().replace(/\/$/, "");
+    } else if (service === "gemini" && settingsState.customGeminiBaseUrl) {
+      customBaseUrl = settingsState.customGeminiBaseUrl.trim().replace(/\/$/, "");
     }
   } catch (e) {
     console.error("Failed to read settings store in apiFetch:", e);

@@ -777,12 +777,37 @@ export class RealtimeAudioGraph {
     return segmentBuffer;
   }
 
+  preStretchClipAudio(
+    clipId: string,
+    audioBuffer: AudioBuffer,
+    speed: number,
+    duration: number,
+    inPoint: number,
+  ): void {
+    if (speed === 1.0) return;
+    const cacheKey = `${clipId}:${speed}:${duration.toFixed(3)}:${inPoint.toFixed(3)}`;
+    if (this.stretchedAudioCache.has(cacheKey)) return;
+
+    try {
+      const clipInPoint = inPoint;
+      const inputDuration = duration * speed;
+      const extracted = this.extractAudioSegment(audioBuffer, clipInPoint, inputDuration);
+      
+      // Perform time-stretching
+      const stretched = AudioTimeStretcher.stretch(this.audioContext, extracted, speed);
+      this.stretchedAudioCache.set(cacheKey, stretched);
+    } catch (err) {
+      console.warn(`[RealtimeAudioGraph] Failed to pre-stretch clip ${clipId}:`, err);
+    }
+  }
+
   dispose(): void {
     this.stopScheduler();
     for (const trackId of Array.from(this.trackNodes.keys())) {
       this.removeTrack(trackId);
     }
     this.impulseResponseCache.clear();
+    this.stretchedAudioCache.clear();
     this.masterGain.disconnect();
   }
 }

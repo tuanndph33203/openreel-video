@@ -33,6 +33,7 @@ export function useElevenLabsApi(options: UseElevenLabsApiOptions): UseElevenLab
     cachedElevenLabsModels,
     setCachedElevenLabsVoices,
     setCachedElevenLabsModels,
+    customGeminiModel,
   } = useSettingsStore();
 
   const [allVoices, setAllVoices] = useState<ElevenLabsVoice[]>([]);
@@ -216,7 +217,7 @@ export function useElevenLabsApi(options: UseElevenLabsApiOptions): UseElevenLab
 
     const apiKey = await getSecret(llmProvider);
     if (!apiKey) {
-      throw new Error(`${llmProvider === "openai" ? "OpenAI" : "Anthropic"} API key not found. Add it in Settings > API Keys.`);
+      throw new Error(`${llmProvider === "openai" ? "OpenAI" : llmProvider === "anthropic" ? "Anthropic" : "Gemini"} API key not found. Add it in Settings > API Keys.`);
     }
 
     if (llmProvider === "anthropic") {
@@ -244,6 +245,33 @@ export function useElevenLabsApi(options: UseElevenLabsApiOptions): UseElevenLab
       return content?.[0]?.text ?? inputText;
     }
 
+    if (llmProvider === "gemini") {
+      const geminiModel = customGeminiModel?.trim() || "gemini-1.5-flash";
+      const response = await apiFetch("gemini", "/chat/completions", apiKey, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: geminiModel,
+          messages: [
+            { role: "user", content: `${ENHANCE_SYSTEM_PROMPT}\n\n${inputText}` },
+          ],
+          max_tokens: 2048,
+        }),
+        signal,
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        const msg = (err as Record<string, unknown>).error;
+        throw new Error(msg ? String((msg as Record<string, unknown>).message ?? msg) : `Gemini error (${response.status})`);
+      }
+
+      const data = await response.json();
+      const choices = (data as { choices: Array<{ message: { content: string } }> }).choices;
+      return choices?.[0]?.message?.content ?? inputText;
+    }
+
+    // Default: OpenAI
     const response = await apiFetch("openai", "/chat/completions", apiKey, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
