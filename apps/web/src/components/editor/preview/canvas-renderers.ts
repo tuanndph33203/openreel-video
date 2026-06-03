@@ -606,14 +606,17 @@ export const renderTextClipToCanvas = (
     };
   }
 
-  // 3D transforms or blend modes require THREE.js rendering since Canvas 2D can't support them
-  // This ensures proper perspective and blending that Canvas 2D doesn't natively support
+  // 3D transforms, 3D extrusion, or blend modes require THREE.js
+  // rendering since Canvas 2D can't support them. This ensures proper
+  // perspective, depth, and blending that Canvas 2D doesn't natively
+  // support.
   const has3DTransforms =
     transform.rotate3d &&
     (transform.rotate3d.x !== 0 || transform.rotate3d.y !== 0);
   const hasBlendMode = textClip.blendMode && textClip.blendMode !== "normal";
+  const has3DText = textClip.text3d?.enabled === true;
 
-  if (has3DTransforms || hasBlendMode) {
+  if (has3DTransforms || hasBlendMode || has3DText) {
     // Lazy-initialize THREE.js renderer (reused for all 3D text rendering)
     if (!threeJSRenderer) {
       threeJSRenderer = new ThreeJSLayerRenderer(canvasWidth, canvasHeight);
@@ -1605,8 +1608,13 @@ export const renderShapeClipToCanvas = (
       transformedClip.transform.rotate3d.y !== 0);
   const hasBlendMode =
     transformedClip.blendMode && transformedClip.blendMode !== "normal";
+  // Mesh-primitive shapes are inherently 3D, so always route them
+  // through the THREE pipeline, even without an explicit rotation.
+  const isShape3D =
+    transformedClip.type === "shape" &&
+    (transformedClip as ShapeClip).shapeType.startsWith("mesh-");
 
-  if (has3DTransforms || hasBlendMode) {
+  if (has3DTransforms || hasBlendMode || isShape3D) {
     if (!threeJSRenderer) {
       threeJSRenderer = new ThreeJSLayerRenderer(canvasWidth, canvasHeight);
     }
@@ -1620,7 +1628,7 @@ export const renderShapeClipToCanvas = (
 
     threeJSRenderer.clear();
 
-    let mesh: THREE.Mesh | null = null;
+    let mesh: THREE.Mesh | THREE.Group | null = null;
     if (transformedClip.type === "svg") {
       mesh = threeJSRenderer.renderSVGClip(
         transformedClip as SVGClip,
@@ -1919,19 +1927,37 @@ export const drawFrameWithTransform = (
     sourceHeight = "height" in frame ? frame.height : canvasHeight;
   }
 
-  // Calculate draw size to fit frame within canvas while preserving aspect ratio (contain)
   const sourceAspect = sourceWidth / sourceHeight;
   const canvasAspect = canvasWidth / canvasHeight;
+  // Treat a missing or "none" fit as "contain" so clips preserve their
+  // aspect ratio (letterboxed) instead of being drawn at raw native pixels.
+  // Keeps the playing render consistent with the paused/scrub render, which
+  // always letterboxes.
+  const fitMode =
+    !t.fitMode || t.fitMode === "none" ? "contain" : t.fitMode;
 
   let drawWidth: number;
   let drawHeight: number;
 
-  if (sourceAspect > canvasAspect) {
+  if (fitMode === "stretch") {
     drawWidth = canvasWidth;
-    drawHeight = canvasWidth / sourceAspect;
-  } else {
     drawHeight = canvasHeight;
-    drawWidth = canvasHeight * sourceAspect;
+  } else if (fitMode === "cover") {
+    if (sourceAspect > canvasAspect) {
+      drawHeight = canvasHeight;
+      drawWidth = canvasHeight * sourceAspect;
+    } else {
+      drawWidth = canvasWidth;
+      drawHeight = canvasWidth / sourceAspect;
+    }
+  } else {
+    if (sourceAspect > canvasAspect) {
+      drawWidth = canvasWidth;
+      drawHeight = canvasWidth / sourceAspect;
+    } else {
+      drawHeight = canvasHeight;
+      drawWidth = canvasHeight * sourceAspect;
+    }
   }
 
   const drawX = -drawWidth * t.anchor.x;
@@ -2186,6 +2212,41 @@ export const renderTransitionFrame = async (
       result.frame.height > 0
     ) {
       return result.frame;
+    }
+
+    return transitionInfo.progress < 0.5 ? outgoingFrame : incomingFrame;
+  } catch {
+    return transitionInfo.progress < 0.5 ? outgoingFrame : incomingFrame;
+  }
+};
+
+export const renderTransitionCanvas = async (
+  transitionInfo: TransitionRenderInfo,
+  outgoingFrame: CanvasImageSource,
+  incomingFrame: CanvasImageSource,
+): Promise<CanvasImageSource> => {
+  try {
+    const transitionBridge = getTransitionBridge();
+    if (!transitionBridge.isInitialized()) {
+      return transitionInfo.progress < 0.5 ? outgoingFrame : incomingFrame;
+    }
+
+    const transition = transitionBridge.getTransition(
+      transitionInfo.transitionId,
+    );
+    if (!transition) {
+      return transitionInfo.progress < 0.5 ? outgoingFrame : incomingFrame;
+    }
+
+    const canvas = await transitionBridge.renderTransitionToCanvas(
+      outgoingFrame,
+      incomingFrame,
+      transition,
+      transitionInfo.progress,
+    );
+
+    if (canvas && canvas.width > 0 && canvas.height > 0) {
+      return canvas;
     }
 
     return transitionInfo.progress < 0.5 ? outgoingFrame : incomingFrame;

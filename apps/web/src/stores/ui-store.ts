@@ -70,6 +70,7 @@ export interface UIState {
   showThumbnails: boolean;
   showKeyframes: boolean;
   autoScroll: boolean;
+  timelineMaximized: boolean;
   activeModal: string | null;
   modalData: Record<string, unknown> | null;
   contextMenu: {
@@ -88,6 +89,7 @@ export interface UIState {
   motionPathMode: boolean;
   motionPathClipId: string | null;
   keyframeEditorOpen: boolean;
+  inspectorActiveTab: string;
   select: (item: SelectionItem, addToSelection?: boolean) => void;
   selectMultiple: (items: SelectionItem[]) => void;
   deselect: (itemId: string) => void;
@@ -114,6 +116,8 @@ export interface UIState {
   setShowThumbnails: (show: boolean) => void;
   setShowKeyframes: (show: boolean) => void;
   setAutoScroll: (enabled: boolean) => void;
+  setTimelineMaximized: (maximized: boolean) => void;
+  toggleTimelineMaximized: () => void;
   openModal: (modalId: string, data?: Record<string, unknown>) => void;
   closeModal: () => void;
   showContextMenu: (x: number, y: number, items: ContextMenuItem[]) => void;
@@ -129,6 +133,7 @@ export interface UIState {
   setMotionPathMode: (enabled: boolean, clipId?: string) => void;
   setKeyframeEditorOpen: (open: boolean) => void;
   toggleKeyframeEditor: () => void;
+  setInspectorActiveTab: (tabId: string) => void;
   exportState: {
     isExporting: boolean;
     progress: number;
@@ -208,6 +213,7 @@ export const useUIStore = create<UIState>()(
         showThumbnails: true,
         showKeyframes: true,
         autoScroll: true,
+        timelineMaximized: false,
 
         activeModal: null,
         modalData: null,
@@ -225,6 +231,8 @@ export const useUIStore = create<UIState>()(
         motionPathClipId: null,
 
         keyframeEditorOpen: false,
+
+        inspectorActiveTab: "transform",
 
         showWelcomeScreen: true,
         skipWelcomeScreen: false,
@@ -471,6 +479,14 @@ export const useUIStore = create<UIState>()(
           set({ autoScroll: enabled });
         },
 
+        setTimelineMaximized: (maximized: boolean) => {
+          set({ timelineMaximized: maximized });
+        },
+
+        toggleTimelineMaximized: () => {
+          set((state) => ({ timelineMaximized: !state.timelineMaximized }));
+        },
+
         openModal: (modalId: string, data?: Record<string, unknown>) => {
           set({
             activeModal: modalId,
@@ -539,6 +555,10 @@ export const useUIStore = create<UIState>()(
           set((state) => ({ keyframeEditorOpen: !state.keyframeEditorOpen }));
         },
 
+        setInspectorActiveTab: (tabId: string) => {
+          set({ inspectorActiveTab: tabId });
+        },
+
         setShowWelcomeScreen: (show: boolean) => {
           set({ showWelcomeScreen: show });
         },
@@ -566,7 +586,9 @@ export const useUIStore = create<UIState>()(
           showThumbnails: state.showThumbnails,
           showKeyframes: state.showKeyframes,
           autoScroll: state.autoScroll,
+          timelineMaximized: state.timelineMaximized,
           skipWelcomeScreen: state.skipWelcomeScreen,
+          inspectorActiveTab: state.inspectorActiveTab,
         }),
       },
     ),

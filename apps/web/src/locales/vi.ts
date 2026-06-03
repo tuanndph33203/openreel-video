@@ -672,7 +672,21 @@ export const vi = {
       font_family: "Phông chữ",
       font_size: "Cỡ chữ",
       text_color: "Màu chữ",
-      background: "Màu nền"
+      background: "Màu nền",
+      text_content: "Nội dung văn bản",
+      timing: "Thời gian",
+      start_time: "Thời gian bắt đầu",
+      end_time: "Thời gian kết thúc",
+      position: "Vị trí",
+      top: "Trên cùng",
+      center: "Ở giữa",
+      bottom: "Dưới cùng",
+      animation: "Hiệu ứng động",
+      font: "Phông chữ",
+      upload_font: "Tải lên phông chữ tùy chỉnh",
+      colors: "Màu sắc",
+      bg_none: "Không có",
+      delete: "Xóa phụ đề"
     }
   }
 };

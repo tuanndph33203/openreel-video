@@ -10,6 +10,7 @@ import {
   Redo2,
   Layers,
   Maximize2,
+  Minimize2,
   Film,
   Music,
   Image,
@@ -39,8 +40,8 @@ import type { SelectionItem } from "../../stores/ui-store";
 import { toast } from "../../stores/notification-store";
 import { useEngineStore } from "../../stores/engine-store";
 import { getPlaybackBridge } from "../../bridges/playback-bridge";
+import { useTranslation } from "../../hooks/use-translation";
 import {
-  IconButton,
   Popover,
   PopoverTrigger,
   PopoverContent,
@@ -62,6 +63,7 @@ import {
 } from "./timeline/index";
 
 export const Timeline: React.FC = () => {
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const tracksRef = useRef<HTMLDivElement>(null);
 
@@ -112,8 +114,16 @@ export const Timeline: React.FC = () => {
 
   const [showLayersPanel, setShowLayersPanel] = useState(false);
 
-  const { select, selectMultiple, clearSelection, getSelectedClipIds, snapSettings, toggleSnap } =
-    useUIStore();
+  const {
+    select,
+    selectMultiple,
+    clearSelection,
+    getSelectedClipIds,
+    snapSettings,
+    toggleSnap,
+    timelineMaximized,
+    toggleTimelineMaximized,
+  } = useUIStore();
   const selectedClipIds = getSelectedClipIds();
 
   const { getTitleEngine, getGraphicsEngine } = useEngineStore();
@@ -237,13 +247,20 @@ export const Timeline: React.FC = () => {
 
   useEffect(() => {
     if (playbackState !== "playing") return;
+    const el = tracksRef.current;
+    if (!el) return;
 
     const playheadPixels = playheadPosition * pixelsPerSecond;
-    const visibleEnd = scrollX + viewportWidth - 150;
+    // Keep the playhead in the left portion of the viewport during playback so
+    // most of the upcoming timeline stays visible. When it crosses near the
+    // right edge (or jumps out of view via a seek/loop), page the view so the
+    // playhead lands back near the left with the rest as lookahead — instead of
+    // pinning it at the end on a long timeline.
+    const leftMargin = Math.min(Math.max(viewportWidth * 0.12, 60), 220);
+    const followThreshold = scrollX + viewportWidth - leftMargin;
 
-    if (playheadPixels > visibleEnd && tracksRef.current) {
-      const newScrollX = playheadPixels - viewportWidth + 200;
-      tracksRef.current.scrollLeft = Math.max(0, newScrollX);
+    if (playheadPixels > followThreshold || playheadPixels < scrollX) {
+      el.scrollLeft = Math.max(0, playheadPixels - leftMargin);
     }
   }, [playheadPosition, playbackState, pixelsPerSecond, scrollX, viewportWidth]);
 
@@ -982,390 +999,381 @@ export const Timeline: React.FC = () => {
 
   const visualOrderTracks = useMemo(() => tracks, [tracks]);
 
+  // Small, mockup-styled timeline tool button
+  const TLTool = ({
+    onClick,
+    disabled,
+    active,
+    title,
+    children,
+    extra,
+  }: {
+    onClick?: () => void;
+    disabled?: boolean;
+    active?: boolean;
+    title?: string;
+    children: React.ReactNode;
+    extra?: React.ReactNode;
+  }) => (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      data-tip={title}
+      title={title}
+      className={`w-[30px] h-[30px] grid place-items-center rounded-md transition-colors relative ${
+        active
+          ? "bg-accent-soft text-accent"
+          : disabled
+          ? "text-fg-muted opacity-50 cursor-not-allowed"
+          : "text-fg-2 hover:bg-hover hover:text-fg"
+      }`}
+    >
+      {children}
+      {extra}
+    </button>
+  );
+
   return (
     <div
       data-tour="timeline"
-      className="h-full bg-background border-t border-border flex flex-col"
+      className="h-full bg-tl-bg flex flex-col min-h-0 relative overflow-hidden"
     >
-      <div className="h-12 border-b border-border flex items-center justify-between px-4 bg-background-secondary relative z-[100]">
-        <div className="flex items-center gap-2">
-          <div className="flex bg-background-tertiary rounded-lg p-1 border border-border">
-            <IconButton
-              icon={Undo2}
-              onClick={undo}
-              disabled={!canUndo()}
-              title="Undo (Cmd+Z)"
-            />
-            <IconButton
-              icon={Redo2}
-              onClick={redo}
-              disabled={!canRedo()}
-              title="Redo (Cmd+Shift+Z)"
-            />
-          </div>
+      {/* ── Timeline toolbar (mockup pattern: compact 30px icons) ── */}
+      <div className="flex items-center px-3 py-1.5 gap-0.5 bg-bg-1 border-b border-border shrink-0 relative z-[100]">
+        <TLTool onClick={undo} disabled={!canUndo()} title="Undo (⌘Z)">
+          <Undo2 size={14} />
+        </TLTool>
+        <TLTool onClick={redo} disabled={!canRedo()} title="Redo (⇧⌘Z)">
+          <Redo2 size={14} />
+        </TLTool>
 
-          <div className="w-px h-6 bg-border mx-1" />
+        <div className="w-px h-4 bg-border mx-1.5" />
 
-          <div className="flex bg-background-tertiary rounded-lg p-1 border border-border gap-1">
+        <TLTool
+          onClick={handleSplit}
+          disabled={selectedClipIds.length !== 1}
+          title="Split (S)"
+        >
+          <Scissors size={14} />
+        </TLTool>
+        <TLTool
+          onClick={handleDelete}
+          disabled={selectedClipIds.length === 0}
+          title="Delete (Del)"
+        >
+          <Trash2 size={14} />
+        </TLTool>
+
+        <div className="w-px h-4 bg-border mx-1.5" />
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
             <button
-              onClick={handleSplit}
-              disabled={selectedClipIds.length !== 1}
-              title="Split clip at playhead (S)"
-              className={`flex items-center gap-1.5 px-2 py-1 rounded transition-colors ${
-                selectedClipIds.length === 1
-                  ? "bg-orange-500/20 text-orange-400 hover:bg-orange-500/30 border border-orange-500/30"
-                  : "text-text-muted opacity-50 cursor-not-allowed"
+              data-tip="Add track"
+              title="Add track"
+              className="w-[30px] h-[30px] grid place-items-center rounded-md text-fg-2 hover:bg-hover hover:text-fg transition-colors relative"
+            >
+              <Plus size={14} />
+              <ChevronDownIcon size={8} className="absolute bottom-0.5 right-0.5 text-fg-3" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent side="top" align="start" sideOffset={8} className="w-48">
+            <DropdownMenuItem onClick={() => addTrack("video")}>
+              <Film size={16} className="text-clip-video" />
+              <span>Video Track</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => addTrack("audio")}>
+              <Music size={16} className="text-clip-audio" />
+              <span>Audio Track</span>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => addTrack("image")}>
+              <Image size={16} className="text-clip-music" />
+              <span>Image Track</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => addTrack("text")}>
+              <Type size={16} className="text-clip-text" />
+              <span>Text Track</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => addTrack("graphics")}>
+              <Shapes size={16} className="text-clip-music" />
+              <span>Graphics Track</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <Popover open={showLayersPanel} onOpenChange={setShowLayersPanel}>
+          <PopoverTrigger asChild>
+            <button
+              data-tip="Track layers"
+              title="Manage track layers"
+              className={`w-[30px] h-[30px] grid place-items-center rounded-md transition-colors ${
+                showLayersPanel
+                  ? "bg-accent-soft text-accent"
+                  : "text-fg-2 hover:bg-hover hover:text-fg"
               }`}
             >
-              <Scissors size={14} />
-              <span className="text-[10px] font-medium">SPLIT</span>
+              <Layers size={14} />
             </button>
-            <IconButton
-              icon={Trash2}
-              onClick={handleDelete}
-              disabled={selectedClipIds.length === 0}
-              title="Delete clip (Del)"
-              className="hover:text-red-500"
-            />
-          </div>
-
-          <div className="w-px h-6 bg-border mx-1" />
-
-          {/* Select all / Deselect all group */}
-          <div className="flex bg-background-tertiary rounded-lg p-1 border border-border gap-1">
-            <button
-              onClick={handleSelectAll}
-              title="Chọn tất cả clips (Ctrl+A)"
-              className="flex items-center gap-1.5 px-2 py-1 rounded transition-colors text-text-secondary hover:text-text-primary hover:bg-background-elevated"
-            >
-              <CheckSquare size={14} className="text-green-400" />
-              <span className="text-[10px] font-semibold">SELECT ALL</span>
-            </button>
-            <button
-              onClick={handleDeselectAll}
-              disabled={selectedClipIds.length === 0}
-              title="Bỏ chọn tất cả"
-              className={`flex items-center gap-1.5 px-2 py-1 rounded transition-colors ${
-                selectedClipIds.length > 0
-                  ? "text-text-secondary hover:text-text-primary hover:bg-background-elevated"
-                  : "text-text-muted opacity-40 cursor-not-allowed"
-              }`}
-            >
-              <Square size={14} className={selectedClipIds.length > 0 ? "text-red-400" : ""} />
-              <span className="text-[10px] font-semibold">DESELECT ALL</span>
-            </button>
-          </div>
-
-          <div className="w-px h-6 bg-border mx-1" />
-
-          {/* Clip actions group (always visible) */}
-          <div className="flex bg-background-tertiary rounded-lg p-1 border border-border gap-1 items-center">
-            <span className="text-[9px] font-bold text-text-tertiary px-1 uppercase tracking-wider select-none">Clip</span>
-            
-            {/* Lật Ngang Video/Hình ảnh */}
-            <button
-              onClick={() => selectedClip && handleFlipHorizontal(selectedClip.id, selectedClip.transform?.scale?.x ?? 1)}
-              disabled={!selectedClip || (selectedClip.type !== "video" && selectedClip.type !== "image")}
-              title="Lật Ngang Video"
-              className={`p-1 rounded transition-colors ${
-                selectedClip && (selectedClip.type === "video" || selectedClip.type === "image")
-                  ? "text-text-secondary hover:text-text-primary hover:bg-background-elevated"
-                  : "text-text-muted opacity-40 cursor-not-allowed"
-              }`}
-            >
-              <FlipHorizontal size={14} />
-            </button>
-
-            {/* Lật Dọc Video/Hình ảnh */}
-            <button
-              onClick={() => selectedClip && handleFlipVertical(selectedClip.id, selectedClip.transform?.scale?.y ?? 1)}
-              disabled={!selectedClip || (selectedClip.type !== "video" && selectedClip.type !== "image")}
-              title="Lật Dọc Video"
-              className={`p-1 rounded transition-colors ${
-                selectedClip && (selectedClip.type === "video" || selectedClip.type === "image")
-                  ? "text-text-secondary hover:text-text-primary hover:bg-background-elevated"
-                  : "text-text-muted opacity-40 cursor-not-allowed"
-              }`}
-            >
-              <FlipVertical size={14} />
-            </button>
-
-            {/* Làm Chậm / Tốc Độ Video/Audio */}
-            <Popover>
-              <PopoverTrigger asChild>
-                <button
-                  disabled={!selectedClip || (selectedClip.type !== "video" && selectedClip.type !== "audio")}
-                  title="Tốc độ clip (Slow down / Speed up)"
-                  className={`flex items-center gap-1 px-2 py-1 rounded transition-colors ${
-                    selectedClip && (selectedClip.type === "video" || selectedClip.type === "audio")
-                      ? "bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20"
-                      : "text-text-muted opacity-40 cursor-not-allowed border border-transparent"
-                  }`}
-                >
-                  <Gauge size={12} />
-                  <span className="text-[10px] font-semibold">
-                    {selectedClip && (selectedClip.type === "video" || selectedClip.type === "audio")
-                      ? `${getSpeedEngine().getClipSpeed(selectedClip.id) || 1}x`
-                      : "1x"}
-                  </span>
-                </button>
-              </PopoverTrigger>
-              {selectedClip && (selectedClip.type === "video" || selectedClip.type === "audio") && (
-                <PopoverContent side="top" align="center" className="p-3 w-48 bg-background-secondary border border-border rounded-lg shadow-xl z-[200]">
-                  <div className="text-[10px] font-bold text-text-secondary mb-2 uppercase tracking-wide select-none">Tốc Độ Clip</div>
-                  <div className="grid grid-cols-3 gap-1.5">
-                    {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 5].map((speed) => {
-                      const currentSpeed = getSpeedEngine().getClipSpeed(selectedClip.id) || 1;
-                      return (
-                        <button
-                          key={speed}
-                          onClick={() => handleUpdateSpeed(selectedClip.id, speed)}
-                          className={`px-1.5 py-1 text-[10px] font-semibold rounded transition-colors ${
-                            currentSpeed === speed
-                              ? "bg-primary text-white"
-                              : "bg-background-tertiary text-text-secondary hover:bg-background-elevated hover:text-text-primary border border-border"
-                          }`}
-                        >
-                          {speed}x
-                        </button>
-                      );
-                    })}
-                  </div>
-                </PopoverContent>
-              )}
-            </Popover>
-
-            {/* Độ Mờ (Blur) Video/Hình ảnh */}
-            <Popover>
-              <PopoverTrigger asChild>
-                <button
-                  disabled={!selectedClip || (selectedClip.type !== "video" && selectedClip.type !== "image")}
-                  title="Độ mờ (Blur)"
-                  className={`flex items-center gap-1 px-2 py-1 rounded transition-colors ${
-                    selectedClip && (selectedClip.type === "video" || selectedClip.type === "image")
-                      ? currentBlurRadius > 0
-                        ? "bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 border border-purple-500/30"
-                        : "text-text-secondary hover:text-text-primary hover:bg-background-elevated"
-                      : "text-text-muted opacity-40 cursor-not-allowed border border-transparent"
-                  }`}
-                >
-                  <Droplet size={14} className={currentBlurRadius > 0 ? "fill-purple-400" : ""} />
-                  {currentBlurRadius > 0 && (
-                    <span className="text-[10px] font-semibold">
-                      {currentBlurRadius}px
-                    </span>
-                  )}
-                </button>
-              </PopoverTrigger>
-              {selectedClip && (selectedClip.type === "video" || selectedClip.type === "image") && (
-                <PopoverContent side="top" align="center" className="p-3 w-48 bg-background-secondary border border-border rounded-lg shadow-xl z-[200]">
-                  <div className="flex justify-between items-center mb-2 select-none">
-                    <span className="text-[10px] font-bold text-text-secondary uppercase tracking-wide">Độ Mờ (Blur)</span>
-                    <span className="text-[10px] font-semibold text-purple-400">{currentBlurRadius}px</span>
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <input
-                      type="range"
-                      min="0"
-                      max="20"
-                      step="1"
-                      value={currentBlurRadius}
-                      onChange={(e) => handleUpdateBlur(selectedClip.id, parseInt(e.target.value))}
-                      className="w-full h-1 bg-background-tertiary rounded-lg appearance-none cursor-pointer accent-purple-500"
-                    />
-                    <div className="flex justify-between text-[8px] text-text-muted select-none">
-                      <span>0px (Tắt)</span>
-                      <span>20px</span>
-                    </div>
-                  </div>
-                </PopoverContent>
-              )}
-            </Popover>
-          </div>
-          <div className="w-px h-6 bg-border mx-1" />
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 transition-colors"
-                title="Add new track"
-              >
-                <Plus size={14} />
-                <span className="text-[11px] font-semibold">Add Track</span>
-                <ChevronDownIcon size={12} className="ml-0.5 opacity-60" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent side="top" align="start" sideOffset={8} className="w-48">
-              <DropdownMenuItem onClick={() => addTrack("video")}>
-                <Film size={16} className="text-green-400" />
-                <span>Video Track</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => addTrack("audio")}>
-                <Music size={16} className="text-blue-400" />
-                <span>Audio Track</span>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => addTrack("image")}>
-                <Image size={16} className="text-purple-400" />
-                <span>Image Track</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => addTrack("text")}>
-                <Type size={16} className="text-yellow-400" />
-                <span>Text Track</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => addTrack("graphics")}>
-                <Shapes size={16} className="text-pink-400" />
-                <span>Graphics Track</span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          <div className="w-px h-6 bg-border mx-1" />
-
-          <Popover open={showLayersPanel} onOpenChange={setShowLayersPanel}>
-            <PopoverTrigger asChild>
-              <button
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-colors ${
-                  showLayersPanel
-                    ? "bg-primary/20 text-primary"
-                    : "hover:bg-background-elevated text-text-secondary hover:text-text-primary"
-                }`}
-                title="Manage track layers"
-              >
-                <Layers size={14} />
-                <span className="text-[10px] font-medium tracking-wide">LAYERS</span>
-              </button>
-            </PopoverTrigger>
-            <PopoverContent
-              side="top"
-              align="start"
-              sideOffset={8}
-              className="w-64 p-0 bg-background-secondary border-border"
-            >
-              <div className="flex items-center justify-between px-3 py-2.5 border-b border-border bg-background-tertiary">
-                <span className="text-xs font-semibold text-text-primary">
-                  Track Layers
-                </span>
-              </div>
-              <div className="p-2 max-h-60 overflow-y-auto">
-                {tracks.length === 0 ? (
-                  <p className="text-xs text-text-muted text-center py-6">
-                    No tracks yet
-                  </p>
-                ) : (
-                  <div className="space-y-0.5">
-                    {tracks.map((track, index) => {
-                      const info = getTrackInfo(track, index);
-                      return (
+          </PopoverTrigger>
+          <PopoverContent
+            side="top"
+            align="start"
+            sideOffset={8}
+            className="w-64 p-0 bg-bg-1 border-border"
+          >
+            <div className="flex items-center justify-between px-3 py-2.5 border-b border-border bg-bg-2">
+              <span className="text-xs font-semibold text-fg">Track Layers</span>
+            </div>
+            <div className="p-2 max-h-60 overflow-y-auto">
+              {tracks.length === 0 ? (
+                <p className="text-xs text-fg-muted text-center py-6">
+                  No tracks yet
+                </p>
+              ) : (
+                <div className="space-y-0.5">
+                  {tracks.map((track, index) => {
+                    const info = getTrackInfo(track, index);
+                    return (
+                      <div
+                        key={track.id}
+                        className="flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-hover group transition-colors cursor-default"
+                      >
                         <div
-                          key={track.id}
-                          className="flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-background-tertiary group transition-colors cursor-default"
+                          className={`w-7 h-7 rounded-md flex items-center justify-center ${info.bgLight}`}
                         >
-                          <div
-                            className={`w-7 h-7 rounded-md flex items-center justify-center ${info.bgLight}`}
-                          >
-                            <info.icon size={14} className={info.textColor} />
-                          </div>
-                          <span className="text-[11px] font-medium text-text-primary flex-1 truncate">
-                            {track.name || info.label}
-                          </span>
-                          <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button
-                              onClick={() =>
-                                index > 0 && reorderTrack(track.id, index - 1)
-                              }
-                              disabled={index === 0}
-                              className="p-1.5 rounded-md hover:bg-background-elevated disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                              title="Move up"
-                            >
-                              <ChevronUp size={12} />
-                            </button>
-                            <button
-                              onClick={() =>
-                                index < tracks.length - 1 &&
-                                reorderTrack(track.id, index + 1)
-                              }
-                              disabled={index === tracks.length - 1}
-                              className="p-1.5 rounded-md hover:bg-background-elevated disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                              title="Move down"
-                            >
-                              <ChevronDown size={12} />
-                            </button>
-                          </div>
+                          <info.icon size={14} className={info.textColor} />
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
+                        <span className="text-[11px] font-medium text-fg flex-1 truncate">
+                          {track.name || info.label}
+                        </span>
+                        <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={() =>
+                              index > 0 && reorderTrack(track.id, index - 1)
+                            }
+                            disabled={index === 0}
+                            className="p-1.5 rounded-md hover:bg-hover disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                            title="Move up"
+                          >
+                            <ChevronUp size={12} />
+                          </button>
+                          <button
+                            onClick={() =>
+                              index < tracks.length - 1 &&
+                              reorderTrack(track.id, index + 1)
+                            }
+                            disabled={index === tracks.length - 1}
+                            className="p-1.5 rounded-md hover:bg-hover disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                            title="Move down"
+                          >
+                            <ChevronDown size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </PopoverContent>
+        </Popover>
+
+        <div className="w-px h-4 bg-border mx-1.5" />
+
+        <TLTool
+          onClick={handleSelectAll}
+          title={t("timeline.select_all", "Select all clips (Ctrl+A)")}
+        >
+          <CheckSquare size={14} className="text-green-400" />
+        </TLTool>
+        <TLTool
+          onClick={handleDeselectAll}
+          disabled={selectedClipIds.length === 0}
+          title={t("timeline.deselect_all", "Deselect all")}
+        >
+          <Square size={14} className={selectedClipIds.length > 0 ? "text-red-400" : ""} />
+        </TLTool>
+
+        <div className="w-px h-4 bg-border mx-1.5" />
+
+        <TLTool
+          onClick={() => selectedClip && handleFlipHorizontal(selectedClip.id, selectedClip.transform?.scale?.x ?? 1)}
+          disabled={!selectedClip || (selectedClip.type !== "video" && selectedClip.type !== "image")}
+          title={t("timeline.flip_horizontal", "Flip horizontal")}
+        >
+          <FlipHorizontal size={14} />
+        </TLTool>
+        <TLTool
+          onClick={() => selectedClip && handleFlipVertical(selectedClip.id, selectedClip.transform?.scale?.y ?? 1)}
+          disabled={!selectedClip || (selectedClip.type !== "video" && selectedClip.type !== "image")}
+          title={t("timeline.flip_vertical", "Flip vertical")}
+        >
+          <FlipVertical size={14} />
+        </TLTool>
+
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              disabled={!selectedClip || (selectedClip.type !== "video" && selectedClip.type !== "audio")}
+              title={t("timeline.speed", "Clip speed")}
+              className={`w-[30px] h-[30px] grid place-items-center rounded-md transition-colors relative ${
+                !selectedClip || (selectedClip.type !== "video" && selectedClip.type !== "audio")
+                  ? "text-fg-muted opacity-50 cursor-not-allowed"
+                  : "text-fg-2 hover:bg-hover hover:text-fg"
+              }`}
+            >
+              <Gauge size={14} />
+              {selectedClip && (selectedClip.type === "video" || selectedClip.type === "audio") && (
+                <span className="absolute -bottom-1 -right-1 bg-primary text-white text-[8px] font-bold px-0.5 rounded scale-75">
+                  {getSpeedEngine().getClipSpeed(selectedClip.id) || 1}x
+                </span>
+              )}
+            </button>
+          </PopoverTrigger>
+          {selectedClip && (selectedClip.type === "video" || selectedClip.type === "audio") && (
+            <PopoverContent side="top" align="center" className="p-3 w-48 bg-bg-2 border border-border rounded-lg shadow-xl z-[200]">
+              <div className="text-[10px] font-bold text-fg-muted mb-2 uppercase tracking-wide select-none">
+                {t("timeline.speed_title", "Clip Speed")}
+              </div>
+              <div className="grid grid-cols-3 gap-1.5">
+                {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 5].map((speed) => {
+                  const currentSpeed = getSpeedEngine().getClipSpeed(selectedClip.id) || 1;
+                  return (
+                    <button
+                      key={speed}
+                      onClick={() => handleUpdateSpeed(selectedClip.id, speed)}
+                      className={`px-1.5 py-1 text-[10px] font-semibold rounded transition-colors ${
+                        currentSpeed === speed
+                          ? "bg-accent text-white"
+                          : "bg-bg-3 text-fg hover:bg-hover border border-border"
+                      }`}
+                    >
+                      {speed}x
+                    </button>
+                  );
+                })}
               </div>
             </PopoverContent>
-          </Popover>
+          )}
+        </Popover>
 
-          <div className="w-px h-6 bg-border mx-1" />
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              disabled={!selectedClip || (selectedClip.type !== "video" && selectedClip.type !== "image")}
+              title={t("timeline.blur", "Blur radius")}
+              className={`w-[30px] h-[30px] grid place-items-center rounded-md transition-colors relative ${
+                !selectedClip || (selectedClip.type !== "video" && selectedClip.type !== "image")
+                  ? "text-fg-muted opacity-50 cursor-not-allowed"
+                  : "text-fg-2 hover:bg-hover hover:text-fg"
+              }`}
+            >
+              <Droplet size={14} className={currentBlurRadius > 0 ? "fill-purple-400 text-purple-400" : ""} />
+              {currentBlurRadius > 0 && (
+                <span className="absolute -bottom-1 -right-1 bg-purple-500 text-white text-[8px] font-bold px-0.5 rounded scale-75">
+                  {currentBlurRadius}
+                </span>
+              )}
+            </button>
+          </PopoverTrigger>
+          {selectedClip && (selectedClip.type === "video" || selectedClip.type === "image") && (
+            <PopoverContent side="top" align="center" className="p-3 w-48 bg-bg-2 border border-border rounded-lg shadow-xl z-[200]">
+              <div className="flex justify-between items-center mb-2 select-none">
+                <span className="text-[10px] font-bold text-fg-muted uppercase tracking-wide">
+                  {t("timeline.blur_title", "Blur Radius")}
+                </span>
+                <span className="text-[10px] font-semibold text-purple-400">{currentBlurRadius}px</span>
+              </div>
+              <div className="flex flex-col gap-2">
+                <input
+                  type="range"
+                  min="0"
+                  max="20"
+                  step="1"
+                  value={currentBlurRadius}
+                  onChange={(e) => handleUpdateBlur(selectedClip.id, parseInt(e.target.value))}
+                  className="w-full h-1 bg-bg-3 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                />
+                <div className="flex justify-between text-[8px] text-fg-muted select-none">
+                  <span>{t("timeline.blur_off", "0px (Off)")}</span>
+                  <span>20px</span>
+                </div>
+              </div>
+            </PopoverContent>
+          )}
+        </Popover>
 
-          <button
+        {/* Centered timecode (mockup uses left-aligned tc-cur / tc-total in
+            the preview controls — timeline shows a compact monospace tc
+            in the toolbar centre). */}
+        <div className="mx-auto font-mono text-[11px] tabular-nums">
+          <span className="text-accent font-semibold">
+            {formatTimecode(playheadPosition)}
+          </span>
+        </div>
+
+        <div className="ml-auto flex items-center gap-0.5">
+          <TLTool
             onClick={toggleSnap}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-colors ${
-              snapSettings.enabled
-                ? "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30"
-                : "hover:bg-background-elevated text-text-muted hover:text-text-secondary"
-            }`}
-            title={snapSettings.enabled ? "Disable snapping" : "Enable snapping"}
+            active={snapSettings.enabled}
+            title={snapSettings.enabled ? "Snap on (N)" : "Snap off (N)"}
           >
             <Magnet size={14} />
-            <span className="text-[10px] font-medium tracking-wide">SNAP</span>
-          </button>
-        </div>
+          </TLTool>
 
-        <div className="font-mono text-primary text-sm font-bold tracking-wider bg-background-tertiary px-4 py-1.5 rounded-lg border border-primary/20 shadow-[0_0_12px_rgba(34,197,94,0.15)]">
-          {formatTimecode(playheadPosition)}
-        </div>
+          <div className="w-px h-4 bg-border mx-1.5" />
 
-        <div className="flex items-center gap-2">
-          <div className="flex items-center bg-background-tertiary rounded-lg border border-border overflow-hidden">
-            <button
-              onClick={() => { setTrackHeight(80); useTimelineStore.setState({ trackHeights: {} }); }}
-              className={`w-8 h-8 flex items-center justify-center transition-colors border-r border-border ${
-                trackHeight >= 60
-                  ? "text-primary bg-primary/10"
-                  : "text-text-secondary hover:text-text-primary hover:bg-background-elevated"
-              }`}
-              title="Large tracks"
-            >
-              <Rows3 size={14} />
-            </button>
-            <button
-              onClick={() => { setTrackHeight(50); useTimelineStore.setState({ trackHeights: {} }); }}
-              className={`w-8 h-8 flex items-center justify-center transition-colors ${
-                trackHeight < 60
-                  ? "text-primary bg-primary/10"
-                  : "text-text-secondary hover:text-text-primary hover:bg-background-elevated"
-              }`}
-              title="Small tracks"
-            >
-              <Rows2 size={14} />
-            </button>
-          </div>
-          <div className="flex items-center bg-background-tertiary rounded-lg border border-border overflow-hidden">
-            <button
-              onClick={zoomOut}
-              className="w-8 h-8 flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-background-elevated transition-colors border-r border-border"
-              title="Zoom out"
-            >
-              <span className="text-base font-medium">−</span>
-            </button>
-            <span className="text-[11px] w-14 text-center font-mono text-text-secondary tabular-nums">
+          <TLTool
+            onClick={() => {
+              setTrackHeight(80);
+              useTimelineStore.setState({ trackHeights: {} });
+            }}
+            active={trackHeight >= 60}
+            title="Large tracks"
+          >
+            <Rows3 size={14} />
+          </TLTool>
+          <TLTool
+            onClick={() => {
+              setTrackHeight(50);
+              useTimelineStore.setState({ trackHeights: {} });
+            }}
+            active={trackHeight < 60}
+            title="Compact tracks"
+          >
+            <Rows2 size={14} />
+          </TLTool>
+
+          <div className="w-px h-4 bg-border mx-1.5" />
+
+          <div className="flex items-center gap-1.5 ml-1">
+            <TLTool onClick={zoomOut} title="Zoom out">
+              <span className="text-[15px] font-medium leading-none">−</span>
+            </TLTool>
+            <span className="text-[10px] w-12 text-center font-mono text-fg-3 tabular-nums">
               {Math.round(pixelsPerSecond)}px/s
             </span>
-            <button
-              onClick={zoomIn}
-              className="w-8 h-8 flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-background-elevated transition-colors border-l border-border"
-              title="Zoom in"
-            >
-              <span className="text-base font-medium">+</span>
-            </button>
+            <TLTool onClick={zoomIn} title="Zoom in">
+              <span className="text-[15px] font-medium leading-none">+</span>
+            </TLTool>
           </div>
-          <IconButton icon={Maximize2} title="Maximize timeline" />
+
+          <TLTool
+            onClick={toggleTimelineMaximized}
+            active={timelineMaximized}
+            title={
+              timelineMaximized
+                ? "Restore layout"
+                : "Maximize timeline (more room)"
+            }
+          >
+            {timelineMaximized ? (
+              <Minimize2 size={14} />
+            ) : (
+              <Maximize2 size={14} />
+            )}
+          </TLTool>
         </div>
       </div>
 
@@ -1375,8 +1383,8 @@ export const Timeline: React.FC = () => {
         onClick={handleBackgroundClick}
       >
         <div className="flex shrink-0">
-          <div className="w-32 h-8 bg-background-tertiary border-b border-r border-border shrink-0" />
-          <div className="flex-1 overflow-hidden relative">
+          <div className="w-32 h-[26px] bg-bg-1 border-b border-r border-border shrink-0" />
+          <div className="flex-1 overflow-hidden relative bg-bg-1 border-b border-border">
             <div
               style={{
                 width: `${timelineDuration * pixelsPerSecond}px`,
@@ -1407,7 +1415,7 @@ export const Timeline: React.FC = () => {
         </div>
 
         <div className="flex-1 flex overflow-hidden">
-          <div className="w-32 bg-background-secondary border-r border-border shrink-0 z-20 shadow-lg overflow-hidden">
+          <div className="w-32 bg-bg-1 border-r border-border shrink-0 z-20 overflow-hidden">
             <div
               className="flex flex-col"
               style={{ transform: `translateY(-${scrollY}px)` }}

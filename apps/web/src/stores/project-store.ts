@@ -163,6 +163,13 @@ export interface ProjectState {
     startTime: number,
     trackId?: string,
   ) => Promise<ActionResult>;
+  moveClips: (
+    moves: Array<{ clipId: string; startTime: number; trackId?: string }>,
+  ) => Promise<ActionResult>;
+  beginHistoryGroup: (description?: string) => void;
+  endHistoryGroup: () => void;
+  closeGapBeforeClip: (clipId: string) => Promise<ActionResult>;
+  consolidateTrack: (trackId: string) => Promise<ActionResult>;
   trimClip: (
     clipId: string,
     inPoint?: number,
@@ -268,6 +275,10 @@ export interface ProjectState {
   updateTextBehindSubject: (
     clipId: string,
     behindSubject: boolean,
+  ) => TextClip | null;
+  updateText3D: (
+    clipId: string,
+    text3d: import("@openreel/core").Text3DSettings | undefined,
   ) => TextClip | null;
   getTextClip: (clipId: string) => TextClip | undefined;
   getAllTextClips: () => TextClip[];
@@ -1845,6 +1856,27 @@ export const useProjectStore = create<ProjectState>()(
             storedHandle = await loadFileHandle(file.name, file.size);
           } catch { /* ignore */ }
 
+          if (mediaType === "video" && !thumbnailUrl) {
+            try {
+              const mediaBridge = getMediaBridge();
+              const thumbs = await mediaBridge.generateThumbnailsForMedia(
+                processedMedia.blob ?? file,
+                mediaType,
+              );
+              if (thumbs.length > 0) {
+                thumbnailUrl = thumbs[0].dataUrl;
+                filmstripThumbnails.push(
+                  ...thumbs.map((thumb) => ({
+                    timestamp: thumb.timestamp,
+                    url: thumb.dataUrl,
+                  })),
+                );
+              }
+            } catch {
+              // Background retry below is best-effort.
+            }
+          }
+
           const newMediaItem: MediaItem = {
             id: uuidv4(),
             name: file.name,
@@ -1943,46 +1975,47 @@ export const useProjectStore = create<ProjectState>()(
             } else {
               console.info(`[ProjectStore] Skipped storing raw blob for ${file.name} to preserve storage capacity. Local handle or user relink will be used.`);
             }
+          }
 
-            if (isLargeFile && !thumbnailUrl) {
-              const mediaBridge = getMediaBridge();
-              setTimeout(async () => {
-                try {
-                  const thumbs = await mediaBridge.generateThumbnailsForMedia(
-                    file,
-                    mediaType,
+          if (mediaType === "video" && !thumbnailUrl) {
+            setTimeout(async () => {
+              try {
+                const mediaBridge = getMediaBridge();
+                const thumbs = await mediaBridge.generateThumbnailsForMedia(
+                  newMediaItem.blob ?? file,
+                  mediaType,
+                );
+                if (thumbs.length > 0) {
+                  const currentProject = get().project;
+                  const mediaIndex = currentProject.mediaLibrary.items.findIndex(
+                    (m) => m.id === newMediaItem.id,
                   );
-                  if (thumbs.length > 0) {
-                    const currentProject = get().project;
-                    const mediaIndex = currentProject.mediaLibrary.items.findIndex(
-                      (m) => m.id === newMediaItem.id,
-                    );
-                    if (mediaIndex !== -1) {
-                      const updatedItems = [...currentProject.mediaLibrary.items];
-                      updatedItems[mediaIndex] = {
-                        ...updatedItems[mediaIndex],
-                        thumbnailUrl: thumbs[0].dataUrl,
-                        filmstripThumbnails: thumbs.map((t) => ({
-                          timestamp: t.timestamp,
-                          url: t.dataUrl,
-                        })),
-                      };
-                      set({
-                        project: {
-                          ...currentProject,
-                          mediaLibrary: {
-                            ...currentProject.mediaLibrary,
-                            items: updatedItems,
-                          },
+                  if (mediaIndex !== -1) {
+                    const updatedItems = [...currentProject.mediaLibrary.items];
+                    updatedItems[mediaIndex] = {
+                      ...updatedItems[mediaIndex],
+                      thumbnailUrl: thumbs[0].dataUrl,
+                      filmstripThumbnails: thumbs.map((t) => ({
+                        timestamp: t.timestamp,
+                        url: t.dataUrl,
+                      })),
+                    };
+                    set({
+                      project: {
+                        ...currentProject,
+                        mediaLibrary: {
+                          ...currentProject.mediaLibrary,
+                          items: updatedItems,
                         },
-                      });
-                    }
+                        modifiedAt: Date.now(),
+                      },
+                    });
                   }
-                } catch {
-                  // Background thumbnail generation is best-effort
                 }
-              }, 100);
-            }
+              } catch {
+                // Background thumbnail generation is best-effort
+              }
+            }, 100);
           }
 
           return {
@@ -2083,14 +2116,36 @@ export const useProjectStore = create<ProjectState>()(
             }
           }
 
+          const mediaType = processedMedia.metadata.hasVideo
+            ? "video"
+            : processedMedia.metadata.hasAudio
+              ? "audio"
+              : "image";
+
+          if (mediaType === "video" && !thumbnailUrl) {
+            try {
+              const thumbs = await mediaBridge.generateThumbnailsForMedia(
+                processedMedia.blob ?? file,
+                mediaType,
+              );
+              if (thumbs.length > 0) {
+                thumbnailUrl = thumbs[0].dataUrl;
+                filmstripThumbnails.push(
+                  ...thumbs.map((thumb) => ({
+                    timestamp: thumb.timestamp,
+                    url: thumb.dataUrl,
+                  })),
+                );
+              }
+            } catch {
+              // Background retry below is best-effort.
+            }
+          }
+
           const updatedItem: MediaItem = {
             id: mediaId,
             name: file.name,
-            type: processedMedia.metadata.hasVideo
-              ? "video"
-              : processedMedia.metadata.hasAudio
-                ? "audio"
-                : "image",
+            type: mediaType,
             fileHandle: null,
             blob: file,
             metadata: {
@@ -2124,6 +2179,42 @@ export const useProjectStore = create<ProjectState>()(
               modifiedAt: Date.now(),
             },
           });
+
+          if (updatedItem.type === "video" && !updatedItem.thumbnailUrl) {
+            setTimeout(async () => {
+              try {
+                const thumbs = await mediaBridge.generateThumbnailsForMedia(
+                  updatedItem.blob ?? file,
+                  updatedItem.type,
+                );
+                if (thumbs.length > 0) {
+                  const currentProject = get().project;
+                  const updatedItemsWithThumbs =
+                    currentProject.mediaLibrary.items.map((item) =>
+                      item.id === mediaId
+                        ? {
+                            ...item,
+                            thumbnailUrl: thumbs[0].dataUrl,
+                            filmstripThumbnails: thumbs.map((thumb) => ({
+                              timestamp: thumb.timestamp,
+                              url: thumb.dataUrl,
+                            })),
+                          }
+                        : item,
+                    );
+                  set({
+                    project: {
+                      ...currentProject,
+                      mediaLibrary: { items: updatedItemsWithThumbs },
+                      modifiedAt: Date.now(),
+                    },
+                  });
+                }
+              } catch {
+                // Background thumbnail generation is best-effort
+              }
+            }, 100);
+          }
 
           return {
             success: true,
@@ -2716,6 +2807,86 @@ export const useProjectStore = create<ProjectState>()(
         return result;
       },
 
+      beginHistoryGroup: (description?: string) => {
+        const { actionExecutor } = get();
+        actionExecutor.getHistory().beginGroup(description);
+      },
+
+      endHistoryGroup: () => {
+        const { actionExecutor } = get();
+        actionExecutor.getHistory().endGroup();
+      },
+
+      closeGapBeforeClip: async (clipId: string) => {
+        const { project, actionExecutor } = get();
+        const action: Action = {
+          type: "clip/closeGapBefore",
+          id: uuidv4(),
+          timestamp: Date.now(),
+          params: { clipId },
+        };
+        const result = await actionExecutor.execute(action, project);
+        if (result.success) {
+          set({ project: { ...project } });
+        }
+        return result;
+      },
+
+      consolidateTrack: async (trackId: string) => {
+        const { project, actionExecutor } = get();
+        const action: Action = {
+          type: "track/consolidate",
+          id: uuidv4(),
+          timestamp: Date.now(),
+          params: { trackId },
+        };
+        const result = await actionExecutor.execute(action, project);
+        if (result.success) {
+          set({ project: { ...project } });
+        }
+        return result;
+      },
+
+      moveClips: async (
+        moves: Array<{ clipId: string; startTime: number; trackId?: string }>,
+      ) => {
+        if (moves.length === 0) {
+          return { success: true };
+        }
+        if (moves.length === 1) {
+          return get().moveClip(
+            moves[0].clipId,
+            moves[0].startTime,
+            moves[0].trackId,
+          );
+        }
+        const { actionExecutor } = get();
+        const history = actionExecutor.getHistory();
+        history.beginGroup("Move clips");
+        try {
+          let lastResult: ActionResult = { success: true };
+          for (const move of moves) {
+            const { project } = get();
+            const action: Action = {
+              type: "clip/move",
+              id: uuidv4(),
+              timestamp: Date.now(),
+              params: {
+                clipId: move.clipId,
+                startTime: move.startTime,
+                trackId: move.trackId,
+              },
+            };
+            lastResult = await actionExecutor.execute(action, project);
+            if (!lastResult.success) break;
+            set({ project: { ...project } });
+          }
+          return lastResult;
+        } finally {
+          history.endGroup();
+        }
+      },
+
       trimClip: async (clipId: string, inPoint?: number, outPoint?: number) => {
         const { project, actionExecutor } = get();
         const action: Action = {
@@ -3098,7 +3269,7 @@ export const useProjectStore = create<ProjectState>()(
       },
 
       duplicateClip: async (clipId: string) => {
-        const { getClip, project, addTrack } = get();
+        const { getClip, project, actionExecutor } = get();
         const clip = getClip(clipId);
         if (!clip) {
           return {
@@ -3123,42 +3294,47 @@ export const useProjectStore = create<ProjectState>()(
           };
         }
 
-        const trackResult = await addTrack(track.type);
-        if (!trackResult.success) {
-          return trackResult;
-        }
-
-        const { project: updatedProject, actionExecutor } = get();
-        const newTrack = updatedProject.timeline.tracks.find(
-          (t) => t.clips.length === 0 && t.type === track.type,
+        // Place the duplicate immediately after the original on the same
+        // track. If there's a clip already starting at that time, scan
+        // forward until we find the next gap large enough for the
+        // duplicate's full duration.
+        const sortedClips = [...track.clips].sort(
+          (a, b) => a.startTime - b.startTime,
         );
-
-        if (!newTrack) {
-          return {
-            success: false,
-            error: {
-              code: "TRACK_NOT_FOUND" as const,
-              message: "Could not find newly created track",
-            },
-          };
+        let candidate = clip.startTime + clip.duration;
+        const epsilon = 0.0001;
+        for (const other of sortedClips) {
+          if (other.id === clip.id) continue;
+          if (other.startTime + other.duration <= candidate + epsilon) continue;
+          if (other.startTime >= candidate + clip.duration - epsilon) break;
+          candidate = other.startTime + other.duration;
         }
 
-        const projectCopy = structuredClone(updatedProject);
+        const projectCopy = structuredClone(project);
         const action: Action = {
           type: "clip/add",
           id: uuidv4(),
           timestamp: Date.now(),
           params: {
-            trackId: newTrack.id,
+            trackId: track.id,
             mediaId: clip.mediaId,
-            startTime: clip.startTime,
+            startTime: candidate,
             duration: clip.duration,
             inPoint: clip.inPoint,
             outPoint: clip.outPoint,
             volume: clip.volume,
             effects: structuredClone(clip.effects),
+            audioEffects: clip.audioEffects
+              ? structuredClone(clip.audioEffects)
+              : undefined,
             keyframes: clip.keyframes ? structuredClone(clip.keyframes) : undefined,
             transform: clip.transform ? structuredClone(clip.transform) : undefined,
+            ...(clip.fade ? { fade: clip.fade } : {}),
+            ...(clip.speed !== undefined ? { speed: clip.speed } : {}),
+            ...(clip.reversed !== undefined ? { reversed: clip.reversed } : {}),
+            ...(clip.audioTrackIndex !== undefined
+              ? { audioTrackIndex: clip.audioTrackIndex }
+              : {}),
           },
         };
 
@@ -4604,6 +4780,22 @@ export const useProjectStore = create<ProjectState>()(
         return updatedClip || null;
       },
 
+      updateText3D: (
+        clipId: string,
+        text3d: import("@openreel/core").Text3DSettings | undefined,
+      ) => {
+        const titleEngine = useEngineStore.getState().getTitleEngine();
+        if (!titleEngine) {
+          console.error("TitleEngine not initialized");
+          return null;
+        }
+        const updatedClip = titleEngine.updateTextClip(clipId, { text3d });
+        if (updatedClip) {
+          set({ project: { ...get().project, modifiedAt: Date.now() } });
+        }
+        return updatedClip || null;
+      },
+
       /**
        * Get a text clip by ID
        */
@@ -4903,116 +5095,31 @@ export const useProjectStore = create<ProjectState>()(
         const subtitleEngine = await useEngineStore
           .getState()
           .getSubtitleEngine();
-        const titleEngine = useEngineStore.getState().getTitleEngine();
-        if (!titleEngine) {
-          return { success: false, errors: ["Title engine not initialized"] };
-        }
-
-        const { project, addTrack } = get();
-        const { timeline, result } = subtitleEngine.importSRT(
-          project.timeline,
-          srtContent,
+        const { project, addSubtitle } = get();
+        const { result } = subtitleEngine.importSRT(project.timeline, srtContent);
+        const errorMessages = result.errors.map(
+          (err: { line: number; message: string }) =>
+            `Line ${err.line}: ${err.message}`,
         );
 
-        if (result.success) {
-          // 1. Ensure captions track exists
-          let captionsTrack = project.timeline.tracks.find(
-            (track) => track.type === "text" && track.name === "Captions",
-          );
-
-          if (!captionsTrack) {
-            const existingTrackIds = new Set(
-              project.timeline.tracks.map((track) => track.id),
-            );
-            const addTrackResult = await addTrack("text");
-            if (!addTrackResult?.success) {
-              return { success: false, errors: ["Failed to create captions track"] };
-            }
-
-            const updatedProject = get().project;
-            captionsTrack = updatedProject.timeline.tracks.find(
-              (track) => track.type === "text" && !existingTrackIds.has(track.id),
-            );
-
-            if (captionsTrack) {
-              const captionsTrackId = captionsTrack.id;
-              set((state) => ({
-                project: {
-                  ...state.project,
-                  timeline: {
-                    ...state.project.timeline,
-                    tracks: state.project.timeline.tracks.map((track) =>
-                      track.id === captionsTrackId
-                        ? { ...track, name: "Captions" }
-                        : track,
-                    ),
-                  },
-                  modifiedAt: Date.now(),
-                },
-              }));
-              captionsTrack = get().project.timeline.tracks.find(
-                (track) => track.id === captionsTrackId,
-              );
-            }
-          }
-
-          if (!captionsTrack) {
-            return { success: false, errors: ["Failed to setup captions track"] };
-          }
-
-          // 2. Create text clips for all new subtitles
-          const trackId = captionsTrack.id;
-          for (const subtitle of result.subtitles) {
-            const duration = Math.max(0.1, subtitle.endTime - subtitle.startTime);
-            const style = subtitle.style;
-            titleEngine.createTextClip({
-              id: subtitle.id,
-              trackId,
-              startTime: subtitle.startTime,
-              duration,
-              text: subtitle.text,
-              style: {
-                fontFamily: style?.fontFamily || "Inter",
-                fontSize: style?.fontSize || 48,
-                fontWeight: "bold",
-                color: style?.color || "#ffffff",
-                backgroundColor: style?.backgroundColor || "rgba(0, 0, 0, 0.7)",
-                textAlign: "center",
-              },
-              transform: {
-                position: {
-                  x: 0.5,
-                  y:
-                    style?.position === "top"
-                      ? 0.16
-                      : style?.position === "center"
-                        ? 0.5
-                        : 0.84,
-                },
-              },
-            });
-          }
-
-          // 3. Update the state with new subtitles and timeline
-          set((state) => ({
-            project: {
-              ...state.project,
-              timeline: {
-                ...timeline,
-                tracks: state.project.timeline.tracks,
-              },
-              modifiedAt: Date.now(),
-            },
-          }));
-
-          return { success: true, errors: [] };
-        } else {
-          const errorMessages = result.errors.map(
-            (err: { line: number; message: string }) =>
-              `Line ${err.line}: ${err.message}`,
-          );
-          return { success: false, errors: errorMessages };
+        if (result.subtitles.length === 0) {
+          return {
+            success: false,
+            errors:
+              errorMessages.length > 0
+                ? errorMessages
+                : ["No valid subtitles were found in this SRT file."],
+          };
         }
+
+        for (const subtitle of result.subtitles) {
+          await addSubtitle(subtitle);
+        }
+
+        return {
+          success: true,
+          errors: errorMessages,
+        };
       },
 
       exportSRT: async () => {
@@ -6108,6 +6215,20 @@ export const useProjectStore = create<ProjectState>()(
           const result = effectsBridge.applyHSL(clipId, settings.hsl);
           if (!result.success) {
             console.error("Failed to apply HSL:", result.error);
+            return false;
+          }
+        }
+
+        if (
+          settings.temperature !== undefined ||
+          settings.tint !== undefined
+        ) {
+          const result = effectsBridge.applyWhiteBalance(clipId, {
+            temperature: settings.temperature,
+            tint: settings.tint,
+          });
+          if (!result.success) {
+            console.error("Failed to apply white balance:", result.error);
             return false;
           }
         }

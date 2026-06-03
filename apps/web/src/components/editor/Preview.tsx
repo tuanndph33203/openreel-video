@@ -19,7 +19,6 @@ import {
   Loader2,
   ZoomIn,
 } from "lucide-react";
-import { IconButton } from "@openreel/ui";
 import { useProjectStore } from "../../stores/project-store";
 import { useTimelineStore } from "../../stores/timeline-store";
 import { useUIStore } from "../../stores/ui-store";
@@ -69,6 +68,7 @@ import {
   getTransitionAtTime,
   setImageLoadCallback,
   renderTransitionFrame,
+  renderTransitionCanvas,
   getAnimatedTransform,
   applyEmphasisAnimation,
   CropModeView,
@@ -194,12 +194,57 @@ const applyStabilizationTransform = (
   ) as ClipTransform;
 };
 
+// The WebGPU renderer maps a layer's texture onto a full-canvas quad, so a
+// scale of {1,1} stretches the source to the canvas. Bake the aspect-fit
+// ratio into the layer scale so GPU compositing letterboxes ("contain") like
+// the Canvas2D path instead of distorting mismatched-aspect clips.
+const computeFitScale = (
+  fitMode: ClipTransform["fitMode"],
+  sourceWidth: number,
+  sourceHeight: number,
+  canvasWidth: number,
+  canvasHeight: number,
+): { x: number; y: number } => {
+  const mode = !fitMode || fitMode === "none" ? "contain" : fitMode;
+  if (
+    mode === "stretch" ||
+    sourceWidth <= 0 ||
+    sourceHeight <= 0 ||
+    canvasWidth <= 0 ||
+    canvasHeight <= 0
+  ) {
+    return { x: 1, y: 1 };
+  }
+  const sourceAspect = sourceWidth / sourceHeight;
+  const canvasAspect = canvasWidth / canvasHeight;
+  let drawWidth: number;
+  let drawHeight: number;
+  if (mode === "cover") {
+    if (sourceAspect > canvasAspect) {
+      drawHeight = canvasHeight;
+      drawWidth = canvasHeight * sourceAspect;
+    } else {
+      drawWidth = canvasWidth;
+      drawHeight = canvasWidth / sourceAspect;
+    }
+  } else {
+    if (sourceAspect > canvasAspect) {
+      drawWidth = canvasWidth;
+      drawHeight = canvasWidth / sourceAspect;
+    } else {
+      drawHeight = canvasHeight;
+      drawWidth = canvasHeight * sourceAspect;
+    }
+  }
+  return { x: drawWidth / canvasWidth, y: drawHeight / canvasHeight };
+};
+
 const renderFrameWithGPU = async (
   renderer: Renderer,
   frame: ImageBitmap,
   transform: ClipTransform,
-  _canvasWidth: number,
-  _canvasHeight: number,
+  canvasWidth: number,
+  canvasHeight: number,
 ): Promise<ImageBitmap | null> => {
   try {
     const device = renderer.getDevice();
@@ -211,9 +256,19 @@ const renderFrameWithGPU = async (
 
     const texture = renderer.createTextureFromImage(frame);
 
+    const fitScale = computeFitScale(
+      transform.fitMode,
+      frame.width,
+      frame.height,
+      canvasWidth,
+      canvasHeight,
+    );
     const gpuTransform = {
       position: transform.position,
-      scale: transform.scale,
+      scale: {
+        x: transform.scale.x * fitScale.x,
+        y: transform.scale.y * fitScale.y,
+      },
       rotation: transform.rotation,
       anchor: transform.anchor,
       opacity: transform.opacity,
@@ -240,8 +295,8 @@ const renderFrameWithGPU = async (
 const renderAllLayersWithGPU = async (
   renderer: Renderer,
   layers: GPULayer[],
-  _canvasWidth: number,
-  _canvasHeight: number,
+  canvasWidth: number,
+  canvasHeight: number,
 ): Promise<ImageBitmap | null> => {
   try {
     const device = renderer.getDevice();
@@ -260,9 +315,19 @@ const renderAllLayersWithGPU = async (
       const texture = renderer.createTextureFromImage(layer.bitmap);
       textures.push(texture);
 
+      const fitScale = computeFitScale(
+        layer.transform.fitMode,
+        layer.bitmap.width,
+        layer.bitmap.height,
+        canvasWidth,
+        canvasHeight,
+      );
       const gpuTransform = {
         position: layer.transform.position,
-        scale: layer.transform.scale,
+        scale: {
+          x: layer.transform.scale.x * fitScale.x,
+          y: layer.transform.scale.y * fitScale.y,
+        },
         rotation: layer.transform.rotation,
         anchor: layer.transform.anchor,
         opacity: layer.transform.opacity,
@@ -534,6 +599,23 @@ export const Preview: React.FC = () => {
 
   const isDark = useThemeStore((state) => state.isDark);
 
+  // The preview canvas background / letterbox bars follow the theme (matching
+  // the --stage-bg token) instead of being hardcoded black, so light mode
+  // shows a light stage. Kept in a ref so every render path (scrub, playback,
+  // transitions) picks up the current value without re-creating callbacks.
+  // Export keeps a black backdrop separately (video-engine), so exported video
+  // is never letterboxed in the UI theme color.
+  const previewBgRef = useRef<string>(isDark ? "#000000" : "#ffffff");
+  useEffect(() => {
+    const screenBg =
+      typeof window !== "undefined"
+        ? getComputedStyle(document.documentElement)
+            .getPropertyValue("--screen-bg")
+            .trim()
+        : "";
+    previewBgRef.current = screenBg || (isDark ? "#000000" : "#ffffff");
+  }, [isDark]);
+
   // Canvas interaction state for resize/move
   const [interactionMode, setInteractionMode] =
     useState<InteractionMode>("none");
@@ -764,8 +846,15 @@ export const Preview: React.FC = () => {
     }
 
     const aspectRatio = settings.width / settings.height;
-    const availableWidth = Math.min(videoAreaSize.width, 800);
-    const availableHeight = Math.min(videoAreaSize.height, 450);
+    // Fill the available preview area (minus a small margin) while preserving
+    // the project aspect ratio, instead of capping at a fixed small size which
+    // left the monitor floating in unused space on larger screens.
+    const PREVIEW_PADDING = 24;
+    const availableWidth = Math.max(1, videoAreaSize.width - PREVIEW_PADDING * 2);
+    const availableHeight = Math.max(
+      1,
+      videoAreaSize.height - PREVIEW_PADDING * 2,
+    );
 
     let width = availableWidth;
     let height = width / aspectRatio;
@@ -1759,7 +1848,7 @@ export const Preview: React.FC = () => {
               offsetX = (canvasWidth - drawWidth) / 2;
             }
 
-            tempCtx.fillStyle = "#000000";
+            tempCtx.fillStyle = previewBgRef.current;
             tempCtx.fillRect(0, 0, canvasWidth, canvasHeight);
             tempCtx.drawImage(video, offsetX, offsetY, drawWidth, drawHeight);
 
@@ -1890,7 +1979,7 @@ export const Preview: React.FC = () => {
               blendedFrame.height > 0
             ) {
               if (shouldClearCanvas) {
-                ctx.fillStyle = "#000000";
+                ctx.fillStyle = previewBgRef.current;
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
                 shouldClearCanvas = false;
               }
@@ -1937,7 +2026,7 @@ export const Preview: React.FC = () => {
                 ? processed
                 : outgoingFrame;
             if (shouldClearCanvas) {
-              ctx.fillStyle = "#000000";
+              ctx.fillStyle = previewBgRef.current;
               ctx.fillRect(0, 0, canvas.width, canvas.height);
               shouldClearCanvas = false;
             }
@@ -1978,7 +2067,7 @@ export const Preview: React.FC = () => {
                 ? processed
                 : incomingFrame;
             if (shouldClearCanvas) {
-              ctx.fillStyle = "#000000";
+              ctx.fillStyle = previewBgRef.current;
               ctx.fillRect(0, 0, canvas.width, canvas.height);
               shouldClearCanvas = false;
             }
@@ -2706,13 +2795,16 @@ export const Preview: React.FC = () => {
         const clipStabilized = vidstabCheck.hasStabilized(clip.id);
         const videoCacheId = clipStabilized ? `stabilized:${clip.id}` : clip.mediaId;
 
-        if (videoCache.has(videoCacheId)) {
-          return Promise.resolve();
-        }
-
         const existingLoad = loadingVideos.get(videoCacheId);
         if (existingLoad) {
           return existingLoad;
+        }
+
+        const cachedVideo = videoCache.get(videoCacheId)?.video;
+        if (cachedVideo) {
+          if (cachedVideo.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+            return Promise.resolve();
+          }
         }
 
         if (!mediaItem.blob && !mediaItem.filePath) {
@@ -2732,7 +2824,7 @@ export const Preview: React.FC = () => {
         video.src = url;
         video.muted = true;
         video.playsInline = true;
-        video.preload = "metadata";
+        video.preload = "auto";
 
         videoCache.set(cacheId, { video, url });
 
@@ -2742,13 +2834,22 @@ export const Preview: React.FC = () => {
             if (settled) return;
             settled = true;
             video.onloadedmetadata = null;
+            video.onloadeddata = null;
+            video.oncanplay = null;
             video.onerror = null;
             loadingVideos.delete(cacheId);
             resolve();
           };
-          video.onloadedmetadata = finish;
+          video.onloadeddata = finish;
+          video.oncanplay = finish;
+          video.onloadedmetadata = () => {
+            if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+              finish();
+            }
+          };
           video.onerror = finish;
-          setTimeout(finish, 750);
+          video.load();
+          setTimeout(finish, 1200);
         });
 
         loadingVideos.set(cacheId, loadPromise);
@@ -2850,6 +2951,90 @@ export const Preview: React.FC = () => {
         return null;
       };
 
+      const findNextNativeClip = (clipId: string) => {
+        const sorted = [...clips].sort((a, b) => a.clip.startTime - b.clip.startTime);
+        const index = sorted.findIndex(({ clip }) => clip.id === clipId);
+        return index >= 0 ? sorted[index + 1] ?? null : null;
+      };
+
+      const findNativeClipById = (clipId: string) =>
+        clips.find(({ clip }) => clip.id === clipId) ?? null;
+
+      const waitForDrawableVideoFrame = async (
+        video: HTMLVideoElement,
+        timeoutMs = 300,
+      ): Promise<void> => {
+        if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+          return;
+        }
+
+        await new Promise<void>((resolve) => {
+          let settled = false;
+          let timeoutId: ReturnType<typeof setTimeout> | null = null;
+          const finish = () => {
+            if (settled) return;
+            settled = true;
+            if (timeoutId) clearTimeout(timeoutId);
+            video.removeEventListener("loadeddata", finish);
+            video.removeEventListener("canplay", finish);
+            resolve();
+          };
+          video.addEventListener("loadeddata", finish);
+          video.addEventListener("canplay", finish);
+          timeoutId = setTimeout(finish, timeoutMs);
+        });
+      };
+
+      const syncVideoToClipTime = async (
+        video: HTMLVideoElement,
+        clip: (typeof clips)[0]["clip"],
+        time: number,
+      ): Promise<void> => {
+        const speedEngine = getSpeedEngine();
+        const localTime = Math.max(
+          0,
+          Math.min(clip.duration, time - clip.startTime),
+        );
+        const adjustedLocalTime = speedEngine.getSourceTimeAtPlaybackTime(
+          clip.id,
+          localTime,
+        );
+        const sourceTime = Math.max(
+          clip.inPoint,
+          Math.min(clip.outPoint, clip.inPoint + adjustedLocalTime),
+        );
+        const vidstabPlay = getVidstabEngine();
+        const videoTime = vidstabPlay.hasStabilized(clip.id)
+          ? sourceTime - clip.inPoint
+          : sourceTime;
+
+        let needsDrawableWait = video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA;
+        if (Math.abs(video.currentTime - videoTime) > 0.1) {
+          needsDrawableWait = true;
+          await new Promise<void>((resolve) => {
+            let settled = false;
+            let timeoutId: ReturnType<typeof setTimeout> | null = null;
+            const finish = () => {
+              if (settled) return;
+              settled = true;
+              if (timeoutId) clearTimeout(timeoutId);
+              video.removeEventListener("seeked", finish);
+              resolve();
+            };
+            video.addEventListener("seeked", finish);
+            timeoutId = setTimeout(finish, 250);
+            video.currentTime = videoTime;
+          });
+        } else if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+          needsDrawableWait = true;
+          video.currentTime = videoTime;
+        }
+
+        if (needsDrawableWait) {
+          await waitForDrawableVideoFrame(video);
+        }
+      };
+
       const drawFrame = async () => {
         if (!isActive || !nativePlaybackActiveRef.current) return;
 
@@ -2871,6 +3056,115 @@ export const Preview: React.FC = () => {
           return;
         }
 
+        const transitionInfo = getTransitionAtTime(
+          currentPlayhead,
+          timelineTracksRef.current,
+        );
+        if (transitionInfo) {
+          const outgoingClip = findNativeClipById(transitionInfo.clipA.id);
+          const incomingClip = findNativeClipById(transitionInfo.clipB.id);
+
+          if (outgoingClip && incomingClip) {
+            await Promise.all([
+              loadVideoForClip(outgoingClip.clip, outgoingClip.mediaItem),
+              loadVideoForClip(incomingClip.clip, incomingClip.mediaItem),
+            ]);
+            if (!isActive || !nativePlaybackActiveRef.current) return;
+
+            const outgoingCacheId = getVidstabEngine().hasStabilized(
+              outgoingClip.clip.id,
+            )
+              ? `stabilized:${outgoingClip.clip.id}`
+              : outgoingClip.clip.mediaId;
+            const incomingCacheId = getVidstabEngine().hasStabilized(
+              incomingClip.clip.id,
+            )
+              ? `stabilized:${incomingClip.clip.id}`
+              : incomingClip.clip.mediaId;
+            const outgoingVideo = videoCache.get(outgoingCacheId)?.video;
+            const incomingVideo = videoCache.get(incomingCacheId)?.video;
+
+            if (outgoingVideo && incomingVideo) {
+              await Promise.all([
+                syncVideoToClipTime(
+                  outgoingVideo,
+                  outgoingClip.clip,
+                  currentPlayhead,
+                ),
+                syncVideoToClipTime(
+                  incomingVideo,
+                  incomingClip.clip,
+                  currentPlayhead,
+                ),
+              ]);
+              if (!isActive || !nativePlaybackActiveRef.current) return;
+              if (outgoingVideo.paused) outgoingVideo.play().catch(() => {});
+              if (incomingVideo.paused) incomingVideo.play().catch(() => {});
+
+              const blended = await renderTransitionCanvas(
+                transitionInfo,
+                outgoingVideo,
+                incomingVideo,
+              );
+              if (!isActive || !nativePlaybackActiveRef.current) return;
+              ctx.fillStyle = previewBgRef.current;
+              ctx.fillRect(0, 0, canvas.width, canvas.height);
+              ctx.drawImage(blended, 0, 0, canvas.width, canvas.height);
+
+              const activeShapeClipsTr = getActiveShapeClips(
+                allShapeClipsRef.current,
+                currentPlayhead,
+              );
+              const activeTextClipsTr = getActiveTextClips(
+                allTextClipsRef.current,
+                currentPlayhead,
+              );
+              if (
+                activeShapeClipsTr.length > 0 ||
+                activeTextClipsTr.length > 0
+              ) {
+                await renderOverlayClipsInTrackOrder(
+                  ctx,
+                  timelineTracksRef.current,
+                  activeShapeClipsTr,
+                  activeTextClipsTr,
+                  currentPlayhead,
+                  canvas.width,
+                  canvas.height,
+                  "all",
+                );
+              }
+
+              const activeSubtitlesTr = getActiveSubtitles(
+                allSubtitles,
+                currentPlayhead,
+              );
+              for (const subtitle of activeSubtitlesTr) {
+                renderSubtitleToCanvas(
+                  ctx,
+                  subtitle,
+                  canvas.width,
+                  canvas.height,
+                  currentPlayhead,
+                );
+              }
+
+              const nowTransition = performance.now();
+              if (
+                nowTransition - lastPlayheadUpdateRef.current >=
+                PLAYHEAD_UPDATE_THROTTLE_MS
+              ) {
+                lastPlayheadUpdateRef.current = nowTransition;
+                setPlayheadPosition(currentPlayhead);
+              }
+              rafId = requestAnimationFrame(() => {
+                drawFrame();
+              });
+              return;
+            }
+          }
+        }
+
         const activeClip = findClipAtTime(currentPlayhead);
 
         if (!activeClip) {
@@ -2879,7 +3173,7 @@ export const Preview: React.FC = () => {
             canvas.style.opacity = "1";
           }
 
-          ctx.fillStyle = "#000000";
+          ctx.fillStyle = previewBgRef.current;
           ctx.fillRect(0, 0, canvas.width, canvas.height);
 
           const sortedImageClipsNoVideo = [...imageClips].sort(
@@ -2970,6 +3264,7 @@ export const Preview: React.FC = () => {
 
         if (!cached) {
           await loadVideoForClip(clip, mediaItem);
+          if (!isActive || !nativePlaybackActiveRef.current) return;
           const nowNoCached = performance.now();
           if (nowNoCached - lastPlayheadUpdateRef.current >= PLAYHEAD_UPDATE_THROTTLE_MS) {
             lastPlayheadUpdateRef.current = nowNoCached;
@@ -2983,9 +3278,6 @@ export const Preview: React.FC = () => {
 
         if (currentClipId !== clip.id) {
           currentClipId = clip.id;
-          if (video.paused) {
-            video.play().catch(() => {});
-          }
         }
 
         const latestClip = (() => {
@@ -3006,10 +3298,19 @@ export const Preview: React.FC = () => {
           latestClip.inPoint,
           Math.min(latestClip.outPoint, latestClip.inPoint + adjustedLocalTime),
         );
-        const videoTime = clipIsStabilized ? sourceTime - latestClip.inPoint : sourceTime;
-        const drift = Math.abs(video.currentTime - videoTime);
-        if (drift > 0.1) {
-          video.currentTime = videoTime;
+        await syncVideoToClipTime(video, latestClip, currentPlayhead);
+        if (!isActive || !nativePlaybackActiveRef.current) return;
+        if (video.paused) {
+          video.play().catch(() => {});
+        }
+
+        const timeUntilClipEnd =
+          latestClip.startTime + latestClip.duration - currentPlayhead;
+        if (timeUntilClipEnd <= 1.0) {
+          const nextClip = findNextNativeClip(latestClip.id);
+          if (nextClip) {
+            loadVideoForClip(nextClip.clip, nextClip.mediaItem).catch(() => {});
+          }
         }
 
         let transform = getAnimatedTransform(
@@ -3038,7 +3339,7 @@ export const Preview: React.FC = () => {
           };
         }
 
-        ctx.fillStyle = "#000000";
+        ctx.fillStyle = previewBgRef.current;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
         // Sort by track index descending (higher index = background = render first)
@@ -3110,6 +3411,13 @@ export const Preview: React.FC = () => {
           try {
             const rawBitmap = await createImageBitmap(video);
             const processed = await applyEffectsToFrame(clip.id, rawBitmap);
+            if (!isActive || !nativePlaybackActiveRef.current) {
+              if (processed !== rawBitmap) {
+                processed.close();
+              }
+              rawBitmap.close();
+              return;
+            }
             if (processed !== rawBitmap) {
               rawBitmap.close();
             }
@@ -3584,7 +3892,7 @@ export const Preview: React.FC = () => {
                 preparedFrame.frame.height,
               );
 
-              ctx.fillStyle = "#000000";
+              ctx.fillStyle = previewBgRef.current;
               ctx.fillRect(0, 0, canvas.width, canvas.height);
               if (useGPU && preparedFrame.frame instanceof ImageBitmap) {
                 const gpuResult = await renderFrameWithGPU(
@@ -4019,6 +4327,182 @@ export const Preview: React.FC = () => {
             }
           }
 
+          // Active transition takes over the whole frame: decode both clips
+          // (one will be outside its visible window — its sink will clamp to
+          // the nearest edge frame) and blend them. Overlays still render on
+          // top below.
+          const transitionInfoMulti = getTransitionAtTime(
+            currentPlayhead,
+            timelineTracksRef.current,
+          );
+
+          // Compute these here so they're visible in both the transition path
+          // and the normal compositing path below.
+          const activeShapeClips = getActiveShapeClips(
+            allShapeClipsRef.current,
+            currentPlayhead,
+          );
+          const activeTextClips = getActiveTextClips(
+            allTextClipsRef.current,
+            currentPlayhead,
+          );
+
+          if (transitionInfoMulti) {
+            const tracks = timelineTracksRef.current;
+            const findClipById = (id: string) => {
+              for (let idx = 0; idx < tracks.length; idx++) {
+                const found = tracks[idx].clips.find((c) => c.id === id);
+                if (found) return { clip: found, trackIndex: idx };
+              }
+              return null;
+            };
+
+            const aLookup = findClipById(transitionInfoMulti.clipA.id);
+            const bLookup = findClipById(transitionInfoMulti.clipB.id);
+
+            if (aLookup && bLookup) {
+              for (const lookup of [aLookup, bLookup]) {
+                if (!playbackResourcesRef.current.has(lookup.clip.id)) {
+                  const resources = await initClipResources(
+                    lookup.clip,
+                    lookup.trackIndex,
+                  );
+                  if (resources) {
+                    playbackResourcesRef.current.set(
+                      lookup.clip.id,
+                      resources,
+                    );
+                  }
+                }
+              }
+
+              const decodeClipFrameForTransition = async (
+                clip: (typeof tracks)[0]["clips"][0],
+              ): Promise<HTMLCanvasElement | OffscreenCanvas | null> => {
+                const resources = playbackResourcesRef.current.get(clip.id);
+                if (!resources) return null;
+                const speedEngine = getSpeedEngine();
+                const localTime = currentPlayhead - clip.startTime;
+                const adjustedLocalTime =
+                  speedEngine.getSourceTimeAtPlaybackTime(clip.id, localTime);
+                const sourceTime = Math.max(
+                  clip.inPoint,
+                  Math.min(
+                    clip.outPoint,
+                    (clip.inPoint || 0) + adjustedLocalTime,
+                  ),
+                );
+                try {
+                  const result = await (
+                    resources.sink as {
+                      getCanvas: (time: number) => Promise<{
+                        canvas: HTMLCanvasElement | OffscreenCanvas;
+                      } | null>;
+                    }
+                  ).getCanvas(sourceTime);
+                  if (!result?.canvas) return null;
+                  return result.canvas;
+                } catch (error) {
+                  console.warn(
+                    `[Preview] Transition decode failed for clip ${clip.id}:`,
+                    error,
+                  );
+                  return null;
+                }
+              };
+
+              const [outgoing, incoming] = await Promise.all([
+                decodeClipFrameForTransition(aLookup.clip),
+                decodeClipFrameForTransition(bLookup.clip),
+              ]);
+
+              if (outgoing && incoming) {
+                try {
+                  const blended = await renderTransitionCanvas(
+                    transitionInfoMulti,
+                    outgoing,
+                    incoming,
+                  );
+
+                  ctx.fillStyle = previewBgRef.current;
+                  ctx.fillRect(0, 0, canvas.width, canvas.height);
+                  ctx.drawImage(blended, 0, 0, canvas.width, canvas.height);
+
+                  for (const shapeClip of activeShapeClips) {
+                    renderShapeClipToCanvas(
+                      ctx,
+                      shapeClip,
+                      canvas.width,
+                      canvas.height,
+                      currentPlayhead,
+                    );
+                  }
+                  for (const textClip of activeTextClips) {
+                    renderTextClipToCanvas(
+                      ctx,
+                      textClip,
+                      canvas.width,
+                      canvas.height,
+                      currentPlayhead,
+                    );
+                  }
+                  const activeSubtitlesTr = getActiveSubtitles(
+                    allSubtitlesRef.current,
+                    currentPlayhead,
+                  );
+                  for (const subtitle of activeSubtitlesTr) {
+                    renderSubtitleToCanvas(
+                      ctx,
+                      subtitle,
+                      canvas.width,
+                      canvas.height,
+                      currentPlayhead,
+                    );
+                  }
+
+                  mainCtx.drawImage(offscreenCanvasRef.current!, 0, 0);
+
+                  frameCount++;
+                  masterClock.reportVideoTime(currentPlayhead);
+                  const nowTr = performance.now();
+                  if (
+                    nowTr - lastPlayheadUpdateRef.current >=
+                    PLAYHEAD_UPDATE_THROTTLE_MS
+                  ) {
+                    lastPlayheadUpdateRef.current = nowTr;
+                    setPlayheadPosition(currentPlayhead);
+                  }
+                  const elapsedTr = nowTr - lastFrameTimestamp;
+                  const targetTimeTr = frameDuration / rateRef.current;
+                  const delayTr = Math.max(0, targetTimeTr - elapsedTr);
+                  lastFrameTimestamp = nowTr;
+                  isProcessingFrame = false;
+                  if (isActive) {
+                    if (delayTr > 0) {
+                      setTimeout(() => {
+                        if (isActive) {
+                          animationRef.current = requestAnimationFrame(
+                            processMultiTrackFrame,
+                          );
+                        }
+                      }, delayTr);
+                    } else {
+                      animationRef.current = requestAnimationFrame(
+                        processMultiTrackFrame,
+                      );
+                    }
+                  }
+                  return;
+                } catch (error) {
+                  console.warn(
+                    "[Preview] Transition render failed, falling back to normal compositing:",
+                    error,
+                  );
+                }
+              }
+            }
+          }
+
           const activeClipIds = new Set(activeClips.map((c) => c.clip.id));
           for (const [clipId, resources] of playbackResourcesRef.current) {
             if (!activeClipIds.has(clipId)) {
@@ -4029,14 +4513,6 @@ export const Preview: React.FC = () => {
 
           const sortedClips = [...activeClips].sort(
             (a, b) => b.trackIndex - a.trackIndex,
-          );
-          const activeShapeClips = getActiveShapeClips(
-            allShapeClipsRef.current,
-            currentPlayhead,
-          );
-          const activeTextClips = getActiveTextClips(
-            allTextClipsRef.current,
-            currentPlayhead,
           );
           const activeTextNeedsSubject = hasBehindSubjectText(activeTextClips);
           const hasActiveTextOverlays = activeTextClips.length > 0;
@@ -4219,7 +4695,7 @@ export const Preview: React.FC = () => {
             currentTextClips.length > 0 ||
             currentShapeClips.length > 0
           ) {
-            ctx.fillStyle = "#000000";
+            ctx.fillStyle = previewBgRef.current;
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
             const tracks = timelineTracksRef.current;
@@ -4655,16 +5131,10 @@ export const Preview: React.FC = () => {
   const lastPlayheadForRenderRef = useRef<number>(playheadPosition);
   const modifiedRenderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const renderInFlightRef = useRef<boolean>(false);
+  const pendingRenderTimeRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (isPlaying) return;
-    if (isScrubbing) {
-      releaseScrubVideoElements();
-      lastModifiedAtRef.current = project.modifiedAt;
-      lastPlayheadForRenderRef.current = playheadPosition;
-      lastPreviewRenderTimeRef.current = playheadPosition;
-      return;
-    }
 
     if (isInteractingRef.current) {
       lastModifiedAtRef.current = project.modifiedAt;
@@ -4693,25 +5163,38 @@ export const Preview: React.FC = () => {
     }
     lastPreviewRenderTimeRef.current = playheadPosition;
 
-    const doRender = async () => {
-      if (renderInFlightRef.current) return;
+    const doRender = async (time: number) => {
+      if (renderInFlightRef.current) {
+        // Coalesce: remember the latest requested position and render it
+        // once the current render completes. This is what makes scrubbing
+        // feel responsive even when each render is slower than mouse moves.
+        pendingRenderTimeRef.current = time;
+        return;
+      }
       renderInFlightRef.current = true;
       try {
-        const rendered = await renderFrameDirectly(playheadPosition);
+        const rendered = await renderFrameDirectly(time);
         if (!rendered) {
-          renderFallbackFrame(playheadPosition);
+          renderFallbackFrame(time);
         }
         const activeClips = getActiveTextClips(allTextClips, playheadPosition);
         syncNativeTextOverlay(activeClips);
       } finally {
         renderInFlightRef.current = false;
+        const next = pendingRenderTimeRef.current;
+        if (next !== null && next !== time) {
+          pendingRenderTimeRef.current = null;
+          doRender(next);
+        } else {
+          pendingRenderTimeRef.current = null;
+        }
       }
     };
 
     if (playheadChanged || renderFuncChanged) {
       lastPlayheadForRenderRef.current = playheadPosition;
       lastModifiedAtRef.current = project.modifiedAt;
-      doRender();
+      doRender(playheadPosition);
     } else if (modifiedChanged) {
       if (modifiedRenderTimerRef.current) {
         clearTimeout(modifiedRenderTimerRef.current);
@@ -4720,7 +5203,7 @@ export const Preview: React.FC = () => {
         modifiedRenderTimerRef.current = null;
         lastPlayheadForRenderRef.current = playheadPosition;
         lastModifiedAtRef.current = project.modifiedAt;
-        doRender();
+        doRender(playheadPosition);
       }, 150);
     }
 
@@ -4876,9 +5359,42 @@ export const Preview: React.FC = () => {
 
     const displayScale = actualWidth / canvasWidth;
 
-    const clipWidth = canvasWidth * Math.abs(transform.scale.x) * displayScale;
-    const clipHeight =
-      canvasHeight * Math.abs(transform.scale.y) * displayScale;
+    const fitMode =
+      !clipTransform.fitMode || clipTransform.fitMode === "none"
+        ? "contain"
+        : clipTransform.fitMode;
+    const mediaItem = getMediaItem(clip.mediaId);
+    const mediaWidth = mediaItem?.metadata?.width ?? canvasWidth;
+    const mediaHeight = mediaItem?.metadata?.height ?? canvasHeight;
+
+    let baseWidth: number;
+    let baseHeight: number;
+
+    if (fitMode === "stretch") {
+      baseWidth = canvasWidth;
+      baseHeight = canvasHeight;
+    } else if (fitMode === "cover") {
+      const mediaAspect = mediaWidth / mediaHeight;
+      if (mediaAspect > canvasAspect) {
+        baseHeight = canvasHeight;
+        baseWidth = canvasHeight * mediaAspect;
+      } else {
+        baseWidth = canvasWidth;
+        baseHeight = canvasWidth / mediaAspect;
+      }
+    } else {
+      const mediaAspect = mediaWidth / mediaHeight;
+      if (mediaAspect > canvasAspect) {
+        baseWidth = canvasWidth;
+        baseHeight = canvasWidth / mediaAspect;
+      } else {
+        baseHeight = canvasHeight;
+        baseWidth = canvasHeight * mediaAspect;
+      }
+    }
+
+    const clipWidth = baseWidth * Math.abs(transform.scale.x) * displayScale;
+    const clipHeight = baseHeight * Math.abs(transform.scale.y) * displayScale;
 
     const offsetX = transform.position.x * displayScale;
     const offsetY = transform.position.y * displayScale;
@@ -4905,6 +5421,7 @@ export const Preview: React.FC = () => {
     settings.height,
     canvasSize,
     liveTransform,
+    getMediaItem,
   ]);
 
   const textClipBounds = useMemo(() => {
@@ -5785,8 +6302,17 @@ export const Preview: React.FC = () => {
         let newX = startTransform.x;
         let newY = startTransform.y;
 
-        const scaleDeltaX = deltaX / displayScale / (settings.width / 2);
-        const scaleDeltaY = deltaY / displayScale / (settings.height / 2);
+        // Base dimensions match how the clip is actually rendered so resize
+        // handles track the cursor regardless of fit mode.
+        const baseScaleW =
+          (clipBounds.width / displayScale) /
+          Math.max(0.001, startTransform.scaleX);
+        const baseScaleH =
+          (clipBounds.height / displayScale) /
+          Math.max(0.001, startTransform.scaleY);
+
+        const scaleDeltaX = deltaX / displayScale / (baseScaleW / 2);
+        const scaleDeltaY = deltaY / displayScale / (baseScaleH / 2);
 
         switch (activeHandle) {
           case "e":
@@ -6147,8 +6673,18 @@ export const Preview: React.FC = () => {
     <div
       ref={containerRef}
       data-tour="preview"
-      className="flex-1 min-h-0 min-w-0 bg-background flex flex-col relative group overflow-hidden"
+      className="w-full h-full min-h-0 min-w-0 bg-stage-bg flex flex-col relative group overflow-hidden"
     >
+      {/* ── Panel bar header (mockup: 'Player') ───────────────── */}
+      {!isMaximized && !isFullscreen && (
+        <div className="flex items-center px-3.5 py-2 border-b border-border bg-bg-1 gap-2.5 min-h-[38px] shrink-0">
+          <h2 className="text-[13px] font-semibold tracking-tight text-fg m-0">Player</h2>
+          <div className="ml-auto flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-accent" title="Live preview" />
+          </div>
+        </div>
+      )}
+
       {/* Crop Mode View - Full Screen Overlay */}
       {shouldShowCropMode && (
         <CropModeView
@@ -6167,7 +6703,7 @@ export const Preview: React.FC = () => {
       {/* Video Area */}
       <div
         ref={videoAreaRef}
-        className={`flex-1 min-h-0 min-w-0 relative flex items-center justify-center bg-background-secondary/30 transition-all duration-300 ${
+        className={`flex-1 min-h-0 min-w-0 relative flex items-center justify-center bg-stage-bg transition-all duration-300 ${
           isMaximized || isFullscreen ? "p-0" : "p-4"
         } ${zoomLevel > 1 ? "overflow-auto" : ""}`}
         onMouseMove={interactionMode !== "none" ? handleMouseMove : undefined}
@@ -6175,10 +6711,12 @@ export const Preview: React.FC = () => {
       >
         <div
           ref={overlayRef}
-          className={`relative bg-black overflow-visible transition-all duration-300 ${
+          className={`relative bg-[var(--screen-bg)] overflow-visible transition-all duration-300 ${
             isMaximized || isFullscreen
               ? "rounded-none ring-0 shadow-none"
-              : "shadow-2xl rounded-xl ring-1 ring-border shadow-[0_0_50px_rgba(0,0,0,0.5)]"
+              : isDark
+                ? "shadow-2xl rounded-xl ring-1 ring-border shadow-[0_0_50px_rgba(0,0,0,0.5)]"
+                : "rounded-xl ring-1 ring-border shadow-[0_10px_40px_rgba(0,0,0,0.1)]"
           }`}
           style={
             isMaximized || isFullscreen
@@ -6202,7 +6740,7 @@ export const Preview: React.FC = () => {
             ref={canvasRef}
             width={settings.width}
             height={settings.height}
-            className="w-full h-full object-contain bg-black"
+            className="w-full h-full object-contain bg-[var(--screen-bg)]"
             style={{
               cursor: hoveredGraphicClipId && !isPlaying ? "pointer" : "default",
             }}
@@ -6622,17 +7160,17 @@ export const Preview: React.FC = () => {
       <div
         className={`border-t border-border transition-all duration-300 ${
           isMaximized || isFullscreen
-            ? "absolute bottom-0 left-0 right-0 z-50 bg-background-secondary backdrop-blur-sm"
-            : "z-20 bg-background-secondary"
+            ? "absolute bottom-0 left-0 right-0 z-50 bg-bg-1 backdrop-blur-sm"
+            : "z-20 bg-bg-1"
         }`}
       >
         {/* Scrub Bar - integrated at top of controls */}
         <div
-          className="h-1.5 bg-background-tertiary cursor-pointer group hover:h-2.5 transition-all relative"
+          className="h-1.5 bg-bg-2 cursor-pointer group hover:h-2.5 transition-all relative"
           onClick={handleScrubClick}
         >
           <div
-            className="h-full bg-primary relative pointer-events-none shadow-[0_0_10px_rgba(34,197,94,0.5)]"
+            className="h-full bg-accent relative pointer-events-none shadow-glow"
             style={{ width: `${progressPercentage}%` }}
           >
             <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity transform scale-0 group-hover:scale-100 duration-100 border border-black/20" />
@@ -6640,11 +7178,13 @@ export const Preview: React.FC = () => {
         </div>
 
         {/* Controls row */}
-        <div className="h-12 px-6 flex items-center justify-between">
+        <div className="h-12 px-4 flex items-center gap-3">
         <div className="flex items-center gap-2">
-          <div className="font-mono text-text-primary tabular-nums text-sm w-24 tracking-wider">
-            {formatTime(playheadPosition)}
-          </div>
+          <span className="font-mono text-[11px] tabular-nums tracking-tight">
+            <span className="text-accent font-semibold">{formatTime(playheadPosition)}</span>
+            <span className="text-fg-3 mx-1">/</span>
+            <span className="text-fg-3">{formatTime(project.timeline.duration || 0)}</span>
+          </span>
 
           {rendererType !== "none" && (
             <span
@@ -6660,22 +7200,24 @@ export const Preview: React.FC = () => {
           )}
         </div>
 
-        <div className="flex items-center gap-6">
-          <IconButton
-            icon={SkipBack}
+        <div className="flex items-center gap-1 mx-auto">
+          <button
             onClick={handleSkipBack}
             title="Skip back 5s"
-          />
+            className="w-7 h-7 grid place-items-center rounded-md text-fg-2 hover:bg-hover hover:text-fg transition-colors"
+          >
+            <SkipBack size={13} />
+          </button>
           <button
             onClick={() => {
               togglePlayback();
             }}
             disabled={Boolean(playbackLockedReason)}
             title={playbackLockedReason ?? (isPlaying ? "Pause" : "Play")}
-            className={`w-10 h-10 rounded-full flex items-center justify-center text-white transition-all ${
+            className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${
               playbackLockedReason
-                ? "bg-background-tertiary text-text-muted cursor-not-allowed shadow-none"
-                : "bg-primary hover:bg-primary-hover active:bg-primary-active shadow-[0_0_15px_rgba(34,197,94,0.4)] hover:shadow-[0_0_25px_rgba(34,197,94,0.6)] transform hover:scale-105"
+                ? "bg-bg-2 text-fg-muted cursor-not-allowed"
+                : "text-fg hover:bg-hover"
             }`}
           >
             {isPlaying ? (
@@ -6686,34 +7228,37 @@ export const Preview: React.FC = () => {
               <Play size={18} fill="currentColor" className="ml-0.5" />
             )}
           </button>
-          <IconButton
-            icon={SkipForward}
+          <button
             onClick={handleSkipForward}
             title="Skip forward 5s"
-          />
+            className="w-7 h-7 grid place-items-center rounded-md text-fg-2 hover:bg-hover hover:text-fg transition-colors"
+          >
+            <SkipForward size={13} />
+          </button>
         </div>
 
-        <div className="flex gap-2 items-center">
+        <div className="flex gap-1 items-center">
           <button
             onClick={() => setIsMuted(!isMuted)}
-            className={`p-2 rounded-lg hover:bg-background-elevated transition-colors ${
+            className={`w-7 h-7 grid place-items-center rounded-md transition-colors ${
               isMuted
-                ? "text-red-500"
-                : "text-text-secondary hover:text-text-primary"
+                ? "text-status-error"
+                : "text-fg-2 hover:text-fg hover:bg-hover"
             }`}
+            title={isMuted ? "Unmute" : "Mute"}
           >
-            {isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+            {isMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
           </button>
 
           {/* Zoom Control */}
           <div className="relative">
             <button
               onClick={() => setShowZoomMenu(!showZoomMenu)}
-              className="px-2 py-1 rounded-lg text-xs font-mono text-text-secondary hover:text-text-primary hover:bg-background-elevated transition-colors"
+              className="px-2 py-0.5 rounded border border-border text-[10.5px] font-medium text-fg-2 hover:bg-hover hover:text-fg transition-colors"
               title="Preview Zoom"
             >
               <div className="flex items-center gap-1">
-                <ZoomIn size={14} />
+                <ZoomIn size={11} />
                 <span>{Math.round(zoomLevel * 100)}%</span>
               </div>
             </button>
@@ -6723,7 +7268,7 @@ export const Preview: React.FC = () => {
                   className="fixed inset-0 z-40"
                   onClick={() => setShowZoomMenu(false)}
                 />
-                <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-background-elevated border border-border rounded-lg shadow-xl py-1 z-50 min-w-[80px]">
+                <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-bg-elev border border-border rounded-md shadow-md py-1 z-50 min-w-[80px]">
                   {ZOOM_OPTIONS.map((opt) => (
                     <button
                       key={opt.value}
@@ -6731,10 +7276,10 @@ export const Preview: React.FC = () => {
                         setZoomLevel(opt.value);
                         setShowZoomMenu(false);
                       }}
-                      className={`w-full px-3 py-1.5 text-xs font-mono text-left hover:bg-background-secondary transition-colors ${
+                      className={`w-full px-3 py-1.5 text-[11px] font-mono text-left hover:bg-hover transition-colors ${
                         zoomLevel === opt.value
-                          ? "text-primary"
-                          : "text-text-secondary"
+                          ? "text-accent"
+                          : "text-fg-2"
                       }`}
                     >
                       {opt.label}
@@ -6745,28 +7290,27 @@ export const Preview: React.FC = () => {
             )}
           </div>
 
-          <div className="w-px h-4 bg-border mx-2" />
           <button
             onClick={handleFullscreen}
             title={isFullscreen ? "Exit Full Screen" : "Full Screen"}
-            className={`p-2 rounded-lg transition-colors ${
+            className={`w-7 h-7 grid place-items-center rounded-md transition-colors ${
               isFullscreen
-                ? "text-primary bg-primary/20"
-                : "text-text-secondary hover:text-text-primary hover:bg-background-elevated"
+                ? "bg-accent-soft text-accent"
+                : "text-fg-2 hover:text-fg hover:bg-hover"
             }`}
           >
-            <Monitor size={16} />
+            <Monitor size={14} />
           </button>
           <button
             onClick={handleMaximize}
             title={isMaximized ? "Restore Size" : "Maximize Preview"}
-            className={`p-2 rounded-lg transition-colors ${
+            className={`w-7 h-7 grid place-items-center rounded-md transition-colors ${
               isMaximized
-                ? "text-primary bg-primary/20"
-                : "text-text-secondary hover:text-text-primary hover:bg-background-elevated"
+                ? "bg-accent-soft text-accent"
+                : "text-fg-2 hover:text-fg hover:bg-hover"
             }`}
           >
-            {isMaximized ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+            {isMaximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
           </button>
         </div>
         </div>

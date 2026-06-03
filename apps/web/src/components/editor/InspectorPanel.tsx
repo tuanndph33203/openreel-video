@@ -1,11 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronDown, Zap, Captions, Loader2, Sparkles, Trash2 ,FlipHorizontal,FlipVertical,} from "lucide-react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown, Zap, Captions, Loader2, Sparkles, Trash2, FlipHorizontal, FlipVertical, Upload } from "lucide-react";
 import { useProjectStore } from "../../stores/project-store";
 import { useTranslation } from "../../hooks/use-translation";
 import { useTimelineStore } from "../../stores/timeline-store";
 import { useUIStore } from "../../stores/ui-store";
 import { useEngineStore } from "../../stores/engine-store";
-import type { Transform, FitMode, Clip, EditingTemplatePrimitive } from "@openreel/core";
+import type { Transform, EditingTemplatePrimitive } from "@openreel/core";
 import {
   ChromaKeyEngine,
   initializeTranscriptionService,
@@ -13,63 +13,24 @@ import {
   type CaptionAnimationStyle,
   CAPTION_ANIMATION_STYLES,
   getAnimationStyleDisplayName,
-  getParticleEngine,
-  type ParticleEffect,
-  type ParticleConfig,
 } from "@openreel/core";
-import {
-  VideoEffectsSection,
-  GreenScreenSection,
-  PiPSection,
-  MaskSection,
-  ColorGradingSection,
-  AudioEffectsSection,
-  NoiseReductionSection,
-  TextSection,
-  TextAnimationSection,
-  ShapeSection,
-  SVGSection,
-  KeyframesSection,
-  BlendingSection,
-  Transform3DSection,
-  MotionTrackingSection,
-  AudioDuckingSection,
-  NestedSequenceSection,
-  AdjustmentLayerSection,
-  ClipTransitionSection,
-  BackgroundRemovalSection,
-  AutoReframeSection,
-  AutoCutSilenceSection,
-  CropSection,
-  SpeedSection,
-  StabilizationSection,
-  SpeedRampSection,
-  MotionPresetsPanel,
-  EmphasisAnimationSection,
-  MotionPathSection,
-  ParticleEffectsSection,
-  AudioTextSyncPanel,
-  AlignmentSection,
-  BehindSubjectSection,
-} from "./inspector";
 import { OPENREEL_TRANSCRIBE_URL } from "../../config/api-endpoints";
-import { AutoEditPanel } from "./panels/AutoEditPanel";
-import { HighlightExtractorPanel } from "./panels/HighlightExtractorPanel";
-import {
-  EditingTemplateControls,
-  mergeEditingTemplateControlValues,
-} from "./panels/EditingTemplateControls";
+import { mergeEditingTemplateControlValues } from "./panels/EditingTemplateControls";
 import {
   getAudioBridgeEffects,
   initializeAudioBridgeEffects,
   DEFAULT_NOISE_REDUCTION,
 } from "../../bridges/audio-bridge-effects";
 import { toast } from "../../stores/notification-store";
+import {
+  FONT_CATEGORIES,
+  FONT_FILE_ACCEPT,
+  registerCustomFont,
+  useCustomFonts,
+} from "./inspector/font-options";
 import { getNoiseReductionPreset } from "./inspector/noise-reduction-presets";
 import {
   Input,
-  LabeledSlider,
-  Switch,
   Select,
   SelectTrigger,
   SelectValue,
@@ -78,40 +39,30 @@ import {
   SelectGroup,
   SelectLabel,
 } from "@openreel/ui";
+import {
+  getTabsForClipType,
+  getTabIdsForClipType,
+  type InspectorClipType,
+  type InspectorTabId,
+} from "./inspector/clip-tabs.config";
+import { InspectorTabs } from "./inspector/shell/InspectorTabs";
+import { InspectorClipHeader } from "./inspector/shell/InspectorClipHeader";
+import { InspectorTabPanel } from "./inspector/shell/InspectorTabPanel";
+import { InspectorTabErrorBoundary } from "./inspector/shell/InspectorTabErrorBoundary";
+import { InspectorSection } from "./inspector/shell/InspectorSection";
+import { ColorTab } from "./inspector/tabs/ColorTab";
+import { AudioTab } from "./inspector/tabs/AudioTab";
+import { TransformTab } from "./inspector/tabs/TransformTab";
+import { SpeedTab } from "./inspector/tabs/SpeedTab";
+import { AnimateTab } from "./inspector/tabs/AnimateTab";
+import { StyleTab } from "./inspector/tabs/StyleTab";
+import { EffectsTab } from "./inspector/tabs/EffectsTab";
+import { AiTab } from "./inspector/tabs/AiTab";
 
 // Initialize engines as singletons
 const chromaKeyEngine = new ChromaKeyEngine({ width: 1920, height: 1080 });
 
-const Section: React.FC<{
-  title: string;
-  defaultOpen?: boolean;
-  sectionId?: string;
-  children: React.ReactNode;
-}> = ({ title, defaultOpen = false, sectionId, children }) => {
-  const [isOpen, setIsOpen] = React.useState(defaultOpen);
-
-  return (
-    <div className="mb-6 transition-all" data-section-id={sectionId}>
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 text-text-secondary hover:text-text-primary transition-colors mb-3 w-full group"
-      >
-        <ChevronDown
-          size={12}
-          className={`transition-transform duration-200 ${
-            isOpen ? "" : "-rotate-90"
-          } text-text-muted group-hover:text-text-primary`}
-        />
-        <span className="text-xs font-medium">{title}</span>
-      </button>
-      {isOpen && (
-        <div className="animate-in slide-in-from-top-2 duration-200">
-          {children}
-        </div>
-      )}
-    </div>
-  );
-};
+const Section = InspectorSection;
 
 const EmptyState: React.FC = () => {
   const { t } = useTranslation();
@@ -125,74 +76,6 @@ const EmptyState: React.FC = () => {
   );
 };
 
-const ParticleEffectsSectionWrapper: React.FC<{
-  clipId: string;
-  clipDuration: number;
-  clipStartTime: number;
-}> = ({ clipId, clipDuration, clipStartTime }) => {
-  const [updateTrigger, setUpdateTrigger] = React.useState(0);
-  const particleEngine = React.useMemo(() => getParticleEngine(), []);
-
-  const effects = React.useMemo(() => {
-    return particleEngine.getEffectsForClip(clipId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clipId, particleEngine, updateTrigger]);
-
-  const handleAddEffect = React.useCallback(
-    (effect: ParticleEffect) => {
-      particleEngine.addEffect(effect);
-      setUpdateTrigger((v) => v + 1);
-    },
-    [particleEngine]
-  );
-
-  const handleUpdateEffect = React.useCallback(
-    (effectId: string, config: Partial<ParticleConfig>) => {
-      particleEngine.updateEffect(effectId, config);
-      setUpdateTrigger((v) => v + 1);
-    },
-    [particleEngine]
-  );
-
-  const handleRemoveEffect = React.useCallback(
-    (effectId: string) => {
-      particleEngine.removeEffect(effectId);
-      setUpdateTrigger((v) => v + 1);
-    },
-    [particleEngine]
-  );
-
-  const handleToggleEffect = React.useCallback(
-    (effectId: string, enabled: boolean) => {
-      particleEngine.toggleEffect(effectId, enabled);
-      setUpdateTrigger((v) => v + 1);
-    },
-    [particleEngine]
-  );
-
-  const handleUpdateTiming = React.useCallback(
-    (effectId: string, startTime: number, duration: number) => {
-      particleEngine.updateEffectTiming(effectId, startTime, duration);
-      setUpdateTrigger((v) => v + 1);
-    },
-    [particleEngine]
-  );
-
-  return (
-    <ParticleEffectsSection
-      clipId={clipId}
-      clipDuration={clipDuration}
-      clipStartTime={clipStartTime}
-      effects={effects}
-      onAddEffect={handleAddEffect}
-      onUpdateEffect={handleUpdateEffect}
-      onRemoveEffect={handleRemoveEffect}
-      onToggleEffect={handleToggleEffect}
-      onUpdateTiming={handleUpdateTiming}
-    />
-  );
-};
-
 export const InspectorPanel: React.FC = () => {
   const { t } = useTranslation();
   // Stores
@@ -200,6 +83,7 @@ export const InspectorPanel: React.FC = () => {
     getClip,
     getMediaItem,
     addSubtitle,
+    importSRT,
     updateSubtitle,
     getSubtitle,
     getEditingTemplate,
@@ -237,6 +121,9 @@ export const InspectorPanel: React.FC = () => {
   const [recipeControlValues, setRecipeControlValues] = useState<
     Record<string, Record<string, EditingTemplatePrimitive>>
   >({});
+  const srtInputRef = useRef<HTMLInputElement>(null);
+  const subtitleFontInputRef = useRef<HTMLInputElement>(null);
+  const customFonts = useCustomFonts();
 
   useEffect(() => {
     setExpandedRecipeApplicationId(null);
@@ -719,6 +606,59 @@ export const InspectorPanel: React.FC = () => {
     [selectedAdjustableClips, project],
   );
 
+  const handleSRTImport = useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+
+      try {
+        const srtContent = await file.text();
+        const result = await importSRT(srtContent);
+
+        if (result.success) {
+          if (result.errors.length > 0) {
+            toast.warning(
+              "SRT imported with warnings",
+              `${result.errors.length} subtitle segment(s) were skipped.`,
+            );
+          } else {
+            toast.success("SRT imported", "Subtitles were added to the Captions track.");
+          }
+        } else {
+          toast.error("SRT import failed", result.errors[0] || "No valid subtitles found.");
+        }
+      } catch {
+        toast.error("SRT import failed", "Could not read the selected subtitle file.");
+      } finally {
+        event.target.value = "";
+      }
+    },
+    [importSRT],
+  );
+
+  const handleSubtitleFontUpload = useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file || !selectedSubtitle) return;
+
+      const result = await registerCustomFont(file);
+      if (!result.success) {
+        toast.error("Font upload failed", result.error ?? "Unknown error.");
+      } else {
+        updateSubtitle(selectedSubtitle.id, {
+          style: {
+            ...(selectedSubtitle.style || {}),
+            fontFamily: result.fontFamily,
+          } as typeof selectedSubtitle.style,
+        });
+        toast.success("Custom font uploaded", `${result.fontFamily} is ready to use.`);
+      }
+
+      event.target.value = "";
+    },
+    [selectedSubtitle, updateSubtitle],
+  );
+
   // Default transform
   const defaultTransform: Transform = {
     position: { x: 0, y: 0 },
@@ -910,316 +850,54 @@ export const InspectorPanel: React.FC = () => {
     clipType === "svg" ||
     clipType === "sticker";
 
+  const tabs = useMemo(
+    () => getTabsForClipType(clipType as InspectorClipType | null),
+    [clipType],
+  );
+  const tabIds = useMemo(
+    () => getTabIdsForClipType(clipType as InspectorClipType | null),
+    [clipType],
+  );
+  const inspectorActiveTab = useUIStore((s) => s.inspectorActiveTab);
+  const setInspectorActiveTab = useUIStore((s) => s.setInspectorActiveTab);
+
+  const activeTab: InspectorTabId =
+    (tabIds.includes(inspectorActiveTab as InspectorTabId)
+      ? (inspectorActiveTab as InspectorTabId)
+      : tabIds[0]) ?? ("transform" as InspectorTabId);
+
+  useEffect(() => {
+    if (
+      tabIds.length > 0 &&
+      !tabIds.includes(inspectorActiveTab as InspectorTabId)
+    ) {
+      setInspectorActiveTab(tabIds[0]);
+    }
+  }, [tabIds, inspectorActiveTab, setInspectorActiveTab]);
+
   return (
     <div
       data-tour="inspector"
-      className="w-full min-w-0 bg-background-secondary border-l border-border flex flex-col overflow-y-auto h-full custom-scrollbar"
+      className="w-full min-w-0 bg-bg-1 flex flex-col h-full"
     >
-      <div className="p-5">
-        <h3 className="text-sm font-bold text-text-primary mb-5 tracking-tight">
-          {t('inspector.title')}
-        </h3>
+      {selectedClip && tabs.length > 0 && (
+        <>
+          <InspectorClipHeader
+            name={`${selectedClip.id.substring(0, 20)}…`}
+            durationSeconds={selectedClip.duration}
+            typeLabel={clipType ?? "clip"}
+          />
+          <InspectorTabs
+            tabs={tabs}
+            activeId={activeTab}
+            onSelect={(id) => setInspectorActiveTab(id)}
+          />
+        </>
+      )}
 
+      <div className="overflow-y-auto flex-1 min-h-0 pb-3.5 custom-scrollbar">
+      <div className="px-4 pt-3">
         {selectedClip ? (
-          <>
-            {/* Clip Info */}
-            <div className="mb-4 p-3 bg-background-tertiary rounded-lg border border-border">
-              <p className="text-xs text-text-primary font-medium truncate">
-                {selectedClip.id.substring(0, 20)}...
-              </p>
-              <p className="text-[10px] text-text-muted">
-                {t('inspector.duration', { count: selectedClip.duration.toFixed(2) })}
-              </p>
-            </div>
-
-            {showVideoControls && selectedTimelineClip && (appliedEditingTemplates.length > 0 || (selectedTimelineClip.effects && selectedTimelineClip.effects.length > 0)) && (
-              <Section
-                title={t('inspector.applied', { count: appliedEditingTemplates.length + (selectedTimelineClip.effects?.filter((e: { metadata?: { templateSource?: unknown } }) => !e.metadata?.templateSource).length || 0) })}
-                sectionId="applied-effects"
-                defaultOpen={true}
-              >
-                <div className="space-y-2">
-                  {appliedEditingTemplates.map((application) => {
-                    const template = getEditingTemplate(application.templateId);
-                    const canEdit = Boolean(template?.controls?.length);
-                    const isExpanded =
-                      expandedRecipeApplicationId === application.applicationId;
-                    const currentControlValues = template
-                      ? recipeControlValues[application.applicationId] ||
-                        mergeEditingTemplateControlValues(
-                          template,
-                          application.controlValues,
-                        )
-                      : undefined;
-
-                    return (
-                      <div
-                        key={application.applicationId}
-                        className="rounded-lg border border-border bg-background-tertiary/70 px-2.5 py-2"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="min-w-0 flex-1 flex items-center gap-2">
-                            <Sparkles size={11} className="text-primary shrink-0" />
-                            <p className="truncate text-[11px] font-medium text-text-primary">
-                              {application.name}
-                            </p>
-                            <span className="text-[9px] text-text-muted capitalize shrink-0">
-                              {application.category ? t('recipes.categories.' + application.category, application.category.replace(/-/g, " ")) : "recipe"}
-                            </span>
-                          </div>
-                          <div className="flex shrink-0 gap-1">
-                            {canEdit && (
-                              <button
-                                onClick={() =>
-                                  handleToggleRecipeControls(
-                                    application.applicationId,
-                                    application.templateId,
-                                    application.controlValues,
-                                  )
-                                }
-                                className={`h-6 px-1.5 rounded text-[9px] font-medium transition-colors ${
-                                  isExpanded
-                                    ? "bg-primary/15 text-primary"
-                                    : "text-text-muted hover:text-text-primary"
-                                }`}
-                              >
-                                {t('inspector.edit')}
-                              </button>
-                            )}
-                            <button
-                              onClick={() => {
-                                const removed = removeEditingTemplateApplication(
-                                  selectedTimelineClip.id,
-                                  application.applicationId,
-                                );
-                                if (!removed) {
-                                  toast.error(t('inspector.err_remove_recipe'), t('inspector.err_remove_recipe_desc'));
-                                  return;
-                                }
-                                setRecipeControlValues((current) => {
-                                  const next = { ...current };
-                                  delete next[application.applicationId];
-                                  return next;
-                                });
-                                if (expandedRecipeApplicationId === application.applicationId) {
-                                  setExpandedRecipeApplicationId(null);
-                                }
-                              }}
-                              className="h-6 px-1.5 rounded text-text-muted hover:text-red-400 transition-colors"
-                            >
-                              <Trash2 size={11} />
-                            </button>
-                          </div>
-                        </div>
-
-                        {isExpanded && template && currentControlValues && (
-                          <div className="mt-2 space-y-3 rounded-lg border border-border/80 bg-background-secondary/80 p-2.5">
-                            <EditingTemplateControls
-                              template={template}
-                              values={currentControlValues}
-                              onChange={(controlId, value) =>
-                                handleRecipeControlChange(
-                                  application.applicationId,
-                                  controlId,
-                                  value,
-                                )
-                              }
-                            />
-                            <div className="flex justify-end gap-1.5">
-                              <button
-                                onClick={() =>
-                                  handleResetRecipeControls(
-                                    application.applicationId,
-                                    application.templateId,
-                                    application.controlValues,
-                                  )
-                                }
-                                className="h-6 px-2.5 rounded border border-border text-[9px] font-medium text-text-secondary hover:text-text-primary transition-colors"
-                              >
-                                {t('inspector.reset')}
-                              </button>
-                              <button
-                                onClick={() =>
-                                  handleUpdateRecipeControls(
-                                    application.applicationId,
-                                    application.templateId,
-                                    application.controlValues,
-                                  )
-                                }
-                                className="h-6 px-2.5 rounded bg-primary text-[9px] font-semibold text-black hover:bg-primary/85 transition-colors"
-                              >
-                                {t('inspector.update')}
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-
-                  {selectedTimelineClip.effects
-                    ?.filter((e: { metadata?: { templateSource?: unknown } }) => !e.metadata?.templateSource)
-                    .map((effect: { id: string; type: string; enabled?: boolean }) => (
-                      <div
-                        key={effect.id}
-                        className="flex items-center justify-between gap-2 rounded-lg border border-border bg-background-tertiary/70 px-2.5 py-2"
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <Zap size={11} className="text-amber-400 shrink-0" />
-                          <p className="truncate text-[11px] font-medium text-text-primary capitalize">
-                            {effect.type.replace(/-/g, " ")}
-                          </p>
-                        </div>
-                        <span className={`text-[9px] font-medium ${effect.enabled !== false ? "text-green-400" : "text-text-muted"}`}>
-                          {effect.enabled !== false ? t('inspector.on') : t('inspector.off')}
-                        </span>
-                      </div>
-                    ))}
-                </div>
-              </Section>
-            )}
-
-            {clipType === "video" && (
-              <Section title={t('inspector.sections.auto_captions')} sectionId="auto-captions" defaultOpen={false}>
-                <div className="space-y-3">
-                  <div>
-                    <label className="text-[10px] text-text-secondary block mb-1">
-                      {t('inspector.captions.animation_style')}
-                    </label>
-                    <Select
-                      value={defaultAnimationStyle}
-                      onValueChange={(v) => setDefaultAnimationStyle(v as CaptionAnimationStyle)}
-                      disabled={isTranscribing}
-                    >
-                      <SelectTrigger className="w-full bg-background-secondary border-border text-text-primary text-[11px]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="bg-background-secondary border-border">
-                        {CAPTION_ANIMATION_STYLES.map((style) => (
-                          <SelectItem key={style} value={style}>
-                            {getAnimationStyleDisplayName(style)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div>
-                    <label className="text-[10px] text-text-secondary block mb-1">
-                      {t('inspector.captions.target_language')}
-                    </label>
-                    <Select
-                      value={targetLanguage}
-                      onValueChange={setTargetLanguage}
-                      disabled={isTranscribing}
-                    >
-                      <SelectTrigger className="w-full bg-background-secondary border-border text-text-primary text-[11px]">
-                        <SelectValue placeholder={t('inspector.captions.original')} />
-                      </SelectTrigger>
-                      <SelectContent className="bg-background-secondary border-border">
-                        <SelectItem value="none">{t('inspector.captions.original')}</SelectItem>
-                        <SelectGroup>
-                          <SelectLabel className="text-[10px]">{t('inspector.captions.translate_to')}</SelectLabel>
-                          <SelectItem value="en">English</SelectItem>
-                          <SelectItem value="es">Spanish</SelectItem>
-                          <SelectItem value="fr">French</SelectItem>
-                          <SelectItem value="de">German</SelectItem>
-                          <SelectItem value="pt">Portuguese</SelectItem>
-                          <SelectItem value="it">Italian</SelectItem>
-                          <SelectItem value="nl">Dutch</SelectItem>
-                          <SelectItem value="ru">Russian</SelectItem>
-                          <SelectItem value="zh">Chinese</SelectItem>
-                          <SelectItem value="ja">Japanese</SelectItem>
-                          <SelectItem value="ko">Korean</SelectItem>
-                          <SelectItem value="ar">Arabic</SelectItem>
-                          <SelectItem value="hi">Hindi</SelectItem>
-                          <SelectItem value="tr">Turkish</SelectItem>
-                          <SelectItem value="pl">Polish</SelectItem>
-                          <SelectItem value="sv">Swedish</SelectItem>
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {transcriptionProgress ? (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <Loader2
-                          size={12}
-                          className="animate-spin text-primary"
-                        />
-                        <span className="text-[10px] text-text-primary">
-                          {transcriptionProgress.message}
-                        </span>
-                      </div>
-                      <div className="h-1.5 bg-background-tertiary rounded-full overflow-hidden">
-                        <div
-                          className={`h-full transition-all duration-300 ${
-                            transcriptionProgress.phase === "error"
-                              ? "bg-red-500"
-                              : transcriptionProgress.phase === "complete"
-                                ? "bg-green-500"
-                                : "bg-primary"
-                          }`}
-                          style={{ width: `${transcriptionProgress.progress}%` }}
-                        />
-                      </div>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={handleGenerateSubtitles}
-                      disabled={isTranscribing}
-                      className="w-full py-2 bg-primary hover:bg-primary/80 text-black rounded-lg text-[11px] font-medium transition-all flex items-center justify-center gap-2"
-                    >
-                      <Captions size={14} />
-                      {t('inspector.captions.btn_generate')}
-                    </button>
-                  )}
-                </div>
-              </Section>
-            )}
-
-            {clipType === "video" && (
-              <Section title={t('inspector.sections.bg_removal')} sectionId="background-removal" defaultOpen={false}>
-                <BackgroundRemovalSection clipId={clipId} />
-              </Section>
-            )}
-
-            {clipType === "video" && (
-              <Section title={t('inspector.sections.auto_reframe')} sectionId="auto-reframe" defaultOpen={false}>
-                <AutoReframeSection clipId={clipId} />
-              </Section>
-            )}
-
-            {showAudioEffects && (
-              <Section title={t('inspector.sections.cut_silence')} sectionId="auto-cut-silence" defaultOpen={false}>
-                <AutoCutSilenceSection clipId={clipId} />
-              </Section>
-            )}
-
-            {/* Beat Sync - Sync other clips to this audio's beats */}
-            {clipType === "audio" && (
-              <Section title={t('inspector.sections.beat_sync')} sectionId="beat-sync" defaultOpen={false}>
-                <AudioTextSyncPanel clipId={clipId} />
-              </Section>
-            )}
-
-            {/* Auto-Edit - Cut video clips to audio beats */}
-            {showAudioEffects && (
-              <Section title={t('inspector.sections.auto_edit')} sectionId="auto-edit" defaultOpen={false}>
-                <AutoEditPanel onClose={() => {}} />
-              </Section>
-            )}
-
-            {/* AI Highlight Extractor */}
-            {showAudioEffects && (
-              <Section title={t('inspector.sections.ai_highlights')} sectionId="ai-highlights" defaultOpen={false}>
-                <HighlightExtractorPanel clipId={clipId} />
-              </Section>
-            )}
-
-
-            {/* Text Clip Content Editor */}
             {clipType === "text" && (
               <Section title={t('inspector.sections.text_content')} sectionId="text-content" defaultOpen={true}>
                 <div className="space-y-3">
@@ -1917,13 +1595,121 @@ export const InspectorPanel: React.FC = () => {
               <TextSection clipIds={selectedTextClipIds} />
             </Section>
           </>
+=======
+          <InspectorTabErrorBoundary key={activeTab}>
+            <InspectorTabPanel tab="effects" active={activeTab}>
+              <EffectsTab
+                clipId={clipId}
+                clipType={clipType}
+                selectedClip={selectedClip}
+                selectedTimelineClip={selectedTimelineClip}
+                showVideoControls={showVideoControls}
+                showVideoEffects={showVideoEffects}
+                showTextSection={showTextSection}
+                appliedEditingTemplates={appliedEditingTemplates}
+                getEditingTemplate={getEditingTemplate}
+                removeEditingTemplateApplication={removeEditingTemplateApplication}
+                expandedRecipeApplicationId={expandedRecipeApplicationId}
+                setExpandedRecipeApplicationId={setExpandedRecipeApplicationId}
+                recipeControlValues={recipeControlValues}
+                setRecipeControlValues={setRecipeControlValues}
+                handleRecipeControlChange={handleRecipeControlChange}
+                handleToggleRecipeControls={handleToggleRecipeControls}
+                handleResetRecipeControls={handleResetRecipeControls}
+                handleUpdateRecipeControls={handleUpdateRecipeControls}
+                chromaKeyEnabled={chromaKeyEnabled}
+                keyColor={keyColor}
+                tolerance={tolerance}
+                handleChromaKeyToggle={handleChromaKeyToggle}
+                handleKeyColorChange={handleKeyColorChange}
+                handleToleranceChange={handleToleranceChange}
+              />
+            </InspectorTabPanel>
+
+            <InspectorTabPanel tab="ai" active={activeTab}>
+              <AiTab
+                clipId={clipId}
+                clipType={clipType}
+                showVideoControls={showVideoControls}
+                showAudioEffects={showAudioEffects}
+                showVideoEffects={showVideoEffects}
+                transcriptionProgress={transcriptionProgress}
+                isTranscribing={isTranscribing}
+                targetLanguage={targetLanguage}
+                setTargetLanguage={setTargetLanguage}
+                defaultAnimationStyle={defaultAnimationStyle}
+                setDefaultAnimationStyle={setDefaultAnimationStyle}
+                handleGenerateSubtitles={handleGenerateSubtitles}
+                handleSRTImport={handleSRTImport}
+                srtInputRef={srtInputRef}
+                handleRemoveBackground={handleRemoveBackground}
+                handleEnhanceAudio={handleEnhanceAudio}
+                handleAutoColor={handleAutoColor}
+                isEnhancingAudio={isEnhancingAudio}
+                audioEnhanced={audioEnhanced}
+                isApplyingSelectedClipEffect={isApplyingSelectedClipEffect}
+              />
+            </InspectorTabPanel>
+
+            <InspectorTabPanel tab="audio" active={activeTab}>
+              <AudioTab
+                clipId={clipId}
+                clipType={clipType}
+                showAudioEffects={showAudioEffects}
+                noiseReductionSectionTitle={noiseReductionSectionTitle}
+                selectedNoiseReductionEffect={selectedNoiseReductionEffect}
+              />
+            </InspectorTabPanel>
+
+            <InspectorTabPanel tab="transform" active={activeTab}>
+              <TransformTab
+                clipId={clipId}
+                clipType={clipType}
+                selectedClip={selectedClip}
+                showTransformControls={showTransformControls}
+                showVideoControls={showVideoControls}
+                transform={transform}
+                handleTransformChange={handleTransformChange}
+              />
+            </InspectorTabPanel>
+
+            <InspectorTabPanel tab="speed" active={activeTab}>
+              <SpeedTab
+                showVideoControls={showVideoControls}
+                selectedClip={selectedClip}
+              />
+            </InspectorTabPanel>
+
+            <InspectorTabPanel tab="animate" active={activeTab}>
+              <AnimateTab
+                clipId={clipId}
+                clipType={clipType}
+                showTextSection={showTextSection}
+              />
+            </InspectorTabPanel>
+
+            <InspectorTabPanel tab="color" active={activeTab}>
+              <ColorTab clipId={clipId} showColorGrading={showColorGrading} />
+            </InspectorTabPanel>
+
+            <InspectorTabPanel tab="style" active={activeTab}>
+              <StyleTab
+                clipId={clipId}
+                showTextSection={showTextSection}
+                showShapeSection={showShapeSection}
+                showSVGSection={showSVGSection}
+              />
+            </InspectorTabPanel>
+
+          </InspectorTabErrorBoundary>
+>>>>>>> upstream/main
         ) : selectedSubtitle ? (
           <>
             {/* Subtitle Info */}
             <div className="mb-4 p-3 bg-primary/10 rounded-lg border border-primary/30">
               <div className="flex items-center gap-2 mb-1">
                 <Captions size={14} className="text-primary" />
-                <span className="text-xs font-bold text-primary">Subtitle</span>
+                <span className="text-xs font-bold text-primary">{t("inspector.subtitle_badge")}</span>
               </div>
               <p className="text-[10px] text-text-muted">
                 {selectedSubtitle.startTime.toFixed(2)}s -{" "}
@@ -1932,7 +1718,7 @@ export const InspectorPanel: React.FC = () => {
             </div>
 
             {/* Subtitle Text Editor */}
-            <Section title="Text Content">
+            <Section title={t("inspector.subtitle_style.text_content")}>
               <div className="space-y-3">
                 <textarea
                   value={selectedSubtitle.text}
@@ -1942,17 +1728,17 @@ export const InspectorPanel: React.FC = () => {
                     })
                   }
                   className="w-full h-24 px-3 py-2 bg-background-tertiary border border-border rounded-lg text-xs text-text-primary resize-none focus:outline-none focus:border-primary"
-                  placeholder="Enter subtitle text..."
+                  placeholder={t("inspector.subtitle_placeholder")}
                 />
               </div>
             </Section>
 
             {/* Subtitle Timing */}
-            <Section title="Timing">
+            <Section title={t("inspector.subtitle_style.timing")}>
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] text-text-secondary">
-                    Start Time
+                    {t("inspector.subtitle_style.start_time")}
                   </span>
                   <Input
                     type="number"
@@ -1968,7 +1754,7 @@ export const InspectorPanel: React.FC = () => {
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] text-text-secondary">
-                    End Time
+                    {t("inspector.subtitle_style.end_time")}
                   </span>
                   <Input
                     type="number"
@@ -1986,7 +1772,7 @@ export const InspectorPanel: React.FC = () => {
             </Section>
 
             {/* Subtitle Position */}
-            <Section title="Position">
+            <Section title={t("inspector.subtitle_style.position")}>
               <div className="grid grid-cols-3 gap-2">
                 {(["top", "center", "bottom"] as const).map((pos) => (
                   <button
@@ -2005,17 +1791,23 @@ export const InspectorPanel: React.FC = () => {
                         : "bg-background-tertiary border border-border text-text-secondary hover:text-text-primary"
                     }`}
                   >
-                    {pos}
+                    {pos === "top"
+                      ? t("inspector.subtitle_style.top")
+                      : pos === "center"
+                        ? t("inspector.subtitle_style.center")
+                        : t("inspector.subtitle_style.bottom")}
                   </button>
                 ))}
               </div>
             </Section>
 
             {/* Subtitle Animation Style */}
-            <Section title="Animation">
+            <Section title={t("inspector.subtitle_style.animation")}>
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-text-secondary">Style</span>
+                  <span className="text-[10px] text-text-secondary">
+                    {t("inspector.subtitle_style.style")}
+                  </span>
                   <Select
                     value={selectedSubtitle.animationStyle || "none"}
                     onValueChange={(v) =>
@@ -2038,25 +1830,24 @@ export const InspectorPanel: React.FC = () => {
                 </div>
                 <p className="text-[9px] text-text-muted">
                   {selectedSubtitle.animationStyle === "karaoke" &&
-                    "Words fill with color as they're spoken"}
+                    t("inspector.subtitle_style.karaoke_desc")}
                   {selectedSubtitle.animationStyle === "word-highlight" &&
-                    "Current word is highlighted and scaled"}
+                    t("inspector.subtitle_style.word_highlight_desc")}
                   {selectedSubtitle.animationStyle === "word-by-word" &&
-                    "Shows one word at a time"}
+                    t("inspector.subtitle_style.word_by_word_desc")}
                   {selectedSubtitle.animationStyle === "bounce" &&
-                    "Words bounce in as they appear"}
+                    t("inspector.subtitle_style.bounce_desc")}
                   {selectedSubtitle.animationStyle === "typewriter" &&
-                    "Words appear progressively like typing"}
+                    t("inspector.subtitle_style.typewriter_desc")}
                   {(!selectedSubtitle.animationStyle ||
                     selectedSubtitle.animationStyle === "none") &&
-                    "Static text, no animation"}
+                    t("inspector.subtitle_style.none_desc")}
                 </p>
                 {selectedSubtitle.animationStyle &&
                   selectedSubtitle.animationStyle !== "none" &&
                   !selectedSubtitle.words?.length && (
                     <p className="text-[9px] text-amber-400 bg-amber-400/10 p-2 rounded">
-                      ⚠️ No word-level timing data. Re-generate captions to
-                      enable animation.
+                      {t("inspector.subtitle_style.no_timing_warning")}
                     </p>
                   )}
                 {selectedSubtitle.animationStyle &&
@@ -2066,7 +1857,7 @@ export const InspectorPanel: React.FC = () => {
                     <div className="pt-2 border-t border-border space-y-2">
                       <div className="flex items-center justify-between">
                         <span className="text-[10px] text-text-secondary">
-                          Highlight Color
+                          {t("inspector.subtitle_style.highlight_color")}
                         </span>
                         <div className="flex items-center gap-2">
                           <input
@@ -2126,11 +1917,18 @@ export const InspectorPanel: React.FC = () => {
             </Section>
 
             {/* Subtitle Font Settings */}
-            <Section title="Font">
+            <Section title={t("inspector.subtitle_style.font")}>
               <div className="space-y-3">
+                <input
+                  ref={subtitleFontInputRef}
+                  type="file"
+                  accept={FONT_FILE_ACCEPT}
+                  onChange={handleSubtitleFontUpload}
+                  className="hidden"
+                />
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] text-text-secondary">
-                    Font Family
+                    {t("inspector.subtitle_style.font_family")}
                   </span>
                   <Select
                     value={selectedSubtitle.style?.fontFamily || "Inter"}
@@ -2147,44 +1945,43 @@ export const InspectorPanel: React.FC = () => {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="bg-background-secondary border-border max-h-60">
-                      <SelectGroup>
-                        <SelectLabel className="text-text-muted text-[10px] font-medium">Popular</SelectLabel>
-                        {["Inter", "Poppins", "Montserrat", "Roboto", "Open Sans", "Lato", "DM Sans"].map((font) => (
-                          <SelectItem key={font} value={font} style={{ fontFamily: font }}>
-                            {font}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                      <SelectGroup>
-                        <SelectLabel className="text-text-muted text-[10px] font-medium">Display</SelectLabel>
-                        {["Bebas Neue", "Anton", "Oswald", "Teko", "Staatliches", "Alfa Slab One"].map((font) => (
-                          <SelectItem key={font} value={font} style={{ fontFamily: font }}>
-                            {font}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                      <SelectGroup>
-                        <SelectLabel className="text-text-muted text-[10px] font-medium">Elegant</SelectLabel>
-                        {["Playfair Display", "Cinzel", "Lora", "Merriweather", "DM Serif Display"].map((font) => (
-                          <SelectItem key={font} value={font} style={{ fontFamily: font }}>
-                            {font}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                      <SelectGroup>
-                        <SelectLabel className="text-text-muted text-[10px] font-medium">Handwritten</SelectLabel>
-                        {["Pacifico", "Lobster", "Dancing Script", "Caveat", "Permanent Marker"].map((font) => (
-                          <SelectItem key={font} value={font} style={{ fontFamily: font }}>
-                            {font}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
+                      {Object.entries(FONT_CATEGORIES).map(([category, fonts]) => (
+                        <SelectGroup key={category}>
+                          <SelectLabel className="text-text-muted text-[10px] font-medium">
+                            {category}
+                          </SelectLabel>
+                          {fonts.map((font) => (
+                            <SelectItem key={font} value={font} style={{ fontFamily: font }}>
+                              {font}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      ))}
+                      {customFonts.length > 0 && (
+                        <SelectGroup>
+                          <SelectLabel className="text-text-muted text-[10px] font-medium">
+                            {t("inspector.subtitle_style.custom_uploads", "Custom Uploads")}
+                          </SelectLabel>
+                          {customFonts.map((font) => (
+                            <SelectItem key={font} value={font} style={{ fontFamily: font }}>
+                              {font}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
+                <button
+                  onClick={() => subtitleFontInputRef.current?.click()}
+                  className="w-full py-1.5 px-2 bg-background-secondary border border-border rounded text-[10px] text-text-secondary hover:text-text-primary transition-colors flex items-center justify-center gap-1.5"
+                >
+                  <Upload size={11} />
+                  {t("inspector.subtitle_style.upload_font")}
+                </button>
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] text-text-secondary">
-                    Font Size
+                    {t("inspector.subtitle_style.font_size")}
                   </span>
                   <Input
                     type="number"
@@ -2206,11 +2003,11 @@ export const InspectorPanel: React.FC = () => {
             </Section>
 
             {/* Subtitle Colors */}
-            <Section title="Colors">
+            <Section title={t("inspector.subtitle_style.colors")}>
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] text-text-secondary">
-                    Text Color
+                    {t("inspector.subtitle_style.text_color")}
                   </span>
                   <div className="flex items-center gap-2">
                     <input
@@ -2233,7 +2030,7 @@ export const InspectorPanel: React.FC = () => {
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] text-text-secondary">
-                    Background
+                    {t("inspector.subtitle_style.background")}
                   </span>
                   <div className="flex items-center gap-2">
                     <input
@@ -2286,7 +2083,7 @@ export const InspectorPanel: React.FC = () => {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent className="bg-background-secondary border-border">
-                        <SelectItem value="0">None</SelectItem>
+                        <SelectItem value="0">{t("inspector.subtitle_style.bg_none")}</SelectItem>
                         <SelectItem value="0.5">50%</SelectItem>
                         <SelectItem value="0.7">70%</SelectItem>
                         <SelectItem value="1">100%</SelectItem>
@@ -2306,13 +2103,14 @@ export const InspectorPanel: React.FC = () => {
                 }}
                 className="w-full py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30 rounded-lg text-[10px] transition-all"
               >
-                Delete Subtitle
+                {t("inspector.subtitle_style.delete")}
               </button>
             </div>
           </>
         ) : (
           <EmptyState />
         )}
+      </div>
       </div>
     </div>
   );

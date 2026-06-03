@@ -672,7 +672,21 @@ export const en = {
       font_family: "Font Family",
       font_size: "Font Size",
       text_color: "Text Color",
-      background: "Background"
+      background: "Background",
+      text_content: "Text Content",
+      timing: "Timing",
+      start_time: "Start Time",
+      end_time: "End Time",
+      position: "Position",
+      top: "Top",
+      center: "Center",
+      bottom: "Bottom",
+      animation: "Animation",
+      font: "Font",
+      upload_font: "Upload Custom Font",
+      colors: "Colors",
+      bg_none: "None",
+      delete: "Delete Subtitle"
     }
   }
 };

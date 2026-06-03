@@ -5,6 +5,7 @@ import { PostHogProvider } from "posthog-js/react";
 import App from "./App";
 import "./index.css";
 import { registerServiceWorker } from "./services/service-worker";
+import { initCustomFonts } from "./components/editor/inspector/font-options";
 
 const POSTHOG_KEY = import.meta.env.VITE_PUBLIC_POSTHOG_KEY;
 const POSTHOG_HOST = import.meta.env.VITE_PUBLIC_POSTHOG_HOST;
@@ -51,6 +52,8 @@ if (import.meta.env.DEV) {
     }).catch(() => {});
   });
 }
+
+void initCustomFonts();
 
 const root = document.getElementById("root")!;
 
