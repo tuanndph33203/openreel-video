@@ -60,6 +60,7 @@ import {
 import { KieAIImageDialog } from "./kieai/KieAIImageDialog";
 import { loadMediaBlob } from "../../services/media-storage";
 import { useKieAIStore } from "../../stores/kieai-store";
+import { useTranslation } from "../../hooks/use-translation";
 
 const formatDuration = (seconds: number): string => {
   const mins = Math.floor(seconds / 60);
@@ -151,6 +152,7 @@ const MediaThumbnail: React.FC<{
   onRetryKieAI,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
+  const { t } = useTranslation();
 
   const getIcon = () => {
     switch (item.type) {
@@ -202,27 +204,27 @@ const MediaThumbnail: React.FC<{
       {item.kieaiError ? (
         <button
           onClick={(e) => { e.stopPropagation(); onRetryKieAI?.(); }}
-          title="Generation failed — click to retry"
+          title={t("assets.retry_failed")}
           className="p-2 bg-red-500/20 rounded-full hover:bg-red-500/40 backdrop-blur-sm transition-colors"
         >
           <RefreshCw size={14} className="text-red-400" />
         </button>
       ) : item.isPending ? (
-        <div title="KieAI generation in progress…" className="p-2">
+        <div title={t("assets.ai_pending")} className="p-2">
           <div className="h-5 w-5 animate-spin rounded-full border-2 border-purple-400 border-t-transparent" />
         </div>
       ) : item.isPlaceholder ? (
         <>
           <button
             onClick={(e) => { e.stopPropagation(); onReplace(); }}
-            title="Replace asset"
+            title={t("assets.replace")}
             className="p-2 bg-yellow-500/20 rounded-full hover:bg-yellow-500/40 backdrop-blur-sm transition-colors"
           >
             <RefreshCw size={14} className="text-yellow-500" />
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); onDelete(); }}
-            title="Delete"
+            title={t("assets.delete")}
             className="p-2 bg-red-500/20 rounded-full hover:bg-red-500/40 backdrop-blur-sm transition-colors"
           >
             <Trash2 size={14} className="text-red-400" />
@@ -233,7 +235,7 @@ const MediaThumbnail: React.FC<{
           {item.type === "image" && onKieAI && (
             <button
               onClick={(e) => { e.stopPropagation(); onKieAI(); }}
-              title="Create with KieAI"
+              title={t("assets.create_kieai")}
               className="p-2 bg-purple-500/20 rounded-full hover:bg-purple-500/40 backdrop-blur-sm transition-colors"
             >
               <Sparkles size={14} className="text-purple-300" />
@@ -241,14 +243,14 @@ const MediaThumbnail: React.FC<{
           )}
           <button
             onClick={(e) => { e.stopPropagation(); onAddToTimeline(); }}
-            title="Add to timeline"
+            title={t("assets.add_timeline")}
             className="p-2 bg-primary/20 rounded-full hover:bg-primary/40 backdrop-blur-sm transition-colors"
           >
             <Plus size={14} className="text-primary" />
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); onDelete(); }}
-            title="Delete"
+            title={t("assets.delete")}
             className="p-2 bg-red-500/20 rounded-full hover:bg-red-500/40 backdrop-blur-sm transition-colors"
           >
             <Trash2 size={14} className="text-red-400" />
@@ -386,16 +388,16 @@ const MediaThumbnail: React.FC<{
           {item.type === "image" && onKieAI && (
             <ContextMenuItem onClick={onKieAI}>
               <Sparkles size={13} className="mr-2 text-primary" />
-              Create with KieAI
+              {t("assets.context_create_kieai")}
             </ContextMenuItem>
           )}
           <ContextMenuItem onClick={(e) => { (e as React.MouseEvent).stopPropagation?.(); onAddToTimeline(); }}>
             <Plus size={13} className="mr-2" />
-            Add to Timeline
+            {t("assets.context_add_timeline")}
           </ContextMenuItem>
           <ContextMenuItem onClick={(e) => { (e as React.MouseEvent).stopPropagation?.(); onDelete(); }} className="text-red-400 focus:text-red-400">
             <Trash2 size={13} className="mr-2" />
-            Delete
+            {t("assets.context_delete")}
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -537,41 +539,44 @@ const MediaThumbnail: React.FC<{
         {item.type === "image" && onKieAI && (
           <ContextMenuItem onClick={onKieAI}>
             <Sparkles size={13} className="mr-2 text-primary" />
-            Create with KieAI
+            {t("assets.context_create_kieai")}
           </ContextMenuItem>
         )}
         <ContextMenuItem onClick={() => onAddToTimeline()}>
           <Plus size={13} className="mr-2" />
-          Add to Timeline
+          {t("assets.context_add_timeline")}
         </ContextMenuItem>
         <ContextMenuItem onClick={() => onDelete()} className="text-red-400 focus:text-red-400">
           <Trash2 size={13} className="mr-2" />
-          Delete
+          {t("assets.context_delete")}
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
   );
 };
 
-const EmptyState: React.FC<{ onImport: () => void }> = ({ onImport }) => (
-  <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-    <div className="w-16 h-16 rounded-2xl bg-background-tertiary border border-border flex items-center justify-center mb-4 shadow-inner">
-      <Upload size={24} className="text-text-muted" />
+const EmptyState: React.FC<{ onImport: () => void }> = ({ onImport }) => {
+  const { t } = useTranslation();
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+      <div className="w-16 h-16 rounded-2xl bg-background-tertiary border border-border flex items-center justify-center mb-4 shadow-inner">
+        <Upload size={24} className="text-text-muted" />
+      </div>
+      <p className="text-sm text-text-secondary mb-2 font-medium">
+        {t("assets.empty_title")}
+      </p>
+      <p className="text-xs text-text-muted mb-6">
+        {t("assets.empty_desc")}
+      </p>
+      <button
+        onClick={onImport}
+        className="px-4 py-2 bg-background-elevated hover:bg-background-tertiary border border-border text-text-primary text-xs font-medium rounded-lg transition-all hover:border-primary/50"
+      >
+        {t("assets.import_btn")}
+      </button>
     </div>
-    <p className="text-sm text-text-secondary mb-2 font-medium">
-      No media imported
-    </p>
-    <p className="text-xs text-text-muted mb-6">
-      Drag files here or click to import
-    </p>
-    <button
-      onClick={onImport}
-      className="px-4 py-2 bg-background-elevated hover:bg-background-tertiary border border-border text-text-primary text-xs font-medium rounded-lg transition-all hover:border-primary/50"
-    >
-      Import Media
-    </button>
-  </div>
-);
+  );
+};
 
 const LoadingIndicator: React.FC<{ message: string }> = ({ message }) => (
   <div className="absolute inset-0 bg-background-secondary/90 backdrop-blur-sm flex flex-col items-center justify-center z-50">
@@ -581,6 +586,7 @@ const LoadingIndicator: React.FC<{ message: string }> = ({ message }) => (
 );
 
 export const AssetsPanel: React.FC = () => {
+  const { t } = useTranslation();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTabRaw] = useState<AssetsTab>("media");
@@ -764,7 +770,7 @@ export const AssetsPanel: React.FC = () => {
 
   const handleRelinkFromFolder = useCallback(async () => {
     if (!("showDirectoryPicker" in window)) {
-      toast.error("Folder picker not supported", "Please relink assets individually using the refresh button on each missing asset.");
+      toast.error(t("assets.relink_failed"), t("assets.relink_failed_desc"));
       return;
     }
     let dirHandle: FileSystemDirectoryHandle;
@@ -992,15 +998,15 @@ export const AssetsPanel: React.FC = () => {
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search media"
+                  placeholder={t("assets.search_placeholder")}
                   className="pl-9 text-xs bg-background-tertiary border-border text-text-primary h-9"
                 />
               </div>
               <div className="flex items-center bg-background-tertiary border border-border rounded-lg p-0.5">
                 {([
-                  { mode: "large" as const, icon: LayoutGrid, title: "Large icons" },
-                  { mode: "small" as const, icon: Grid2x2, title: "Small icons" },
-                  { mode: "list" as const, icon: List, title: "List view" },
+                  { mode: "large" as const, icon: LayoutGrid, title: t("assets.large_icons") },
+                  { mode: "small" as const, icon: Grid2x2, title: t("assets.small_icons") },
+                  { mode: "list" as const, icon: List, title: t("assets.list_view") },
                 ]).map(({ mode, icon: ViewIcon, title }) => (
                   <button
                     key={mode}
@@ -1030,7 +1036,7 @@ export const AssetsPanel: React.FC = () => {
                 >
                   <div className="flex items-center gap-2">
                     <AlertTriangle size={14} />
-                    <span>Show Only Missing Assets</span>
+                    <span>{t("assets.show_missing_only")}</span>
                   </div>
                   <div className="px-2 py-0.5 rounded-full bg-yellow-500 text-black text-[10px] font-bold">
                     {missingAssetsCount}
@@ -1041,7 +1047,7 @@ export const AssetsPanel: React.FC = () => {
                   className="w-full px-3 py-2 rounded-lg border border-yellow-500/40 bg-yellow-500/5 text-yellow-500 text-xs font-medium transition-all hover:bg-yellow-500/15 flex items-center gap-2"
                 >
                   <RefreshCw size={14} />
-                  <span>Relink from Folder…</span>
+                  <span>{t("assets.relink_from_folder")}</span>
                 </button>
               </div>
             )}
@@ -1086,7 +1092,7 @@ export const AssetsPanel: React.FC = () => {
                         <div className="w-12 h-8 rounded bg-background-tertiary flex items-center justify-center flex-shrink-0">
                           <Upload size={14} className="text-text-muted group-hover:text-text-secondary transition-colors" />
                         </div>
-                        <span className="text-[11px] text-text-muted group-hover:text-text-secondary transition-colors font-medium">Add media</span>
+                        <span className="text-[11px] text-text-muted group-hover:text-text-secondary transition-colors font-medium">{t("assets.add_media")}</span>
                       </button>
                     ) : (
                       <div className="flex flex-col">
@@ -1096,7 +1102,7 @@ export const AssetsPanel: React.FC = () => {
                         >
                           <div className="flex flex-col items-center gap-1.5">
                             <Upload size={mediaViewMode === "small" ? 16 : 20} className="text-text-muted group-hover:text-text-secondary transition-colors" />
-                            <span className="text-[10px] text-text-muted group-hover:text-text-secondary transition-colors">Add media</span>
+                            <span className="text-[10px] text-text-muted group-hover:text-text-secondary transition-colors">{t("assets.add_media")}</span>
                           </div>
                         </button>
                       </div>
@@ -1107,7 +1113,7 @@ export const AssetsPanel: React.FC = () => {
                 {isDragOver && (
                   <div className="absolute inset-4 border-2 border-dashed border-primary rounded-xl flex items-center justify-center bg-primary/5 pointer-events-none z-50 backdrop-blur-sm">
                     <div className="text-primary text-sm font-bold bg-background-secondary px-4 py-2 rounded-full shadow-lg">
-                      Drop files to import
+                      {t("assets.drop_files")}
                     </div>
                   </div>
                 )}
@@ -1124,7 +1130,7 @@ export const AssetsPanel: React.FC = () => {
                   <div className="flex items-center justify-between mb-3">
                     <h4 className="text-xs font-medium text-text-secondary flex items-center gap-1.5">
                       <Palette size={12} />
-                      Backgrounds
+                      {t("assets.graphics.backgrounds")}
                     </h4>
                   </div>
                   <div className="flex gap-1.5 mb-3 flex-wrap">
@@ -1139,7 +1145,7 @@ export const AssetsPanel: React.FC = () => {
                               : "bg-background-tertiary text-text-muted hover:text-text-secondary"
                           }`}
                         >
-                          {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                          {t(`assets.graphics.${cat}`)}
                         </button>
                       ),
                     )}
@@ -1172,7 +1178,7 @@ export const AssetsPanel: React.FC = () => {
 
                 <div className="mb-6">
                   <h4 className="text-xs font-medium text-text-secondary mb-3">
-                    Shapes
+                    {t("assets.graphics.shapes")}
                   </h4>
                   <div className="grid grid-cols-4 gap-2">
                     <button
@@ -1212,14 +1218,14 @@ export const AssetsPanel: React.FC = () => {
                         }
                       }}
                       className="aspect-square bg-background-tertiary rounded-lg border border-border hover:border-primary/50 hover:bg-primary/5 transition-all flex flex-col items-center justify-center gap-1 group"
-                      title="Blur Block"
+                      title={t("assets.graphics.blur")}
                     >
                       <Focus
                         size={20}
                         className="text-text-secondary group-hover:text-primary transition-colors"
                       />
                       <span className="text-[9px] text-text-muted group-hover:text-text-secondary">
-                        Blur
+                        {t("assets.graphics.blur")}
                       </span>
                     </button>
                     {[
@@ -1265,14 +1271,14 @@ export const AssetsPanel: React.FC = () => {
                           }
                         }}
                         className="aspect-square bg-background-tertiary rounded-lg border border-border hover:border-primary/50 hover:bg-primary/5 transition-all flex flex-col items-center justify-center gap-1 group"
-                        title={shape.label}
+                        title={t(`assets.graphics.${shape.type}`)}
                       >
                         <shape.icon
                           size={20}
                           className="text-text-secondary group-hover:text-primary transition-colors"
                         />
                         <span className="text-[9px] text-text-muted group-hover:text-text-secondary">
-                          {shape.label}
+                          {t(`assets.graphics.${shape.type}`)}
                         </span>
                       </button>
                     ))}
@@ -1281,7 +1287,7 @@ export const AssetsPanel: React.FC = () => {
 
                 <div className="mb-6">
                   <h4 className="text-xs font-medium text-text-secondary mb-3">
-                    SVG Import
+                    {t("assets.graphics.svg_import")}
                   </h4>
                   <button
                     onClick={() => {
@@ -1317,14 +1323,14 @@ export const AssetsPanel: React.FC = () => {
                       className="text-text-secondary group-hover:text-primary transition-colors"
                     />
                     <span className="text-xs text-text-secondary group-hover:text-text-primary">
-                      Import SVG File
+                      {t("assets.graphics.import_svg_file")}
                     </span>
                   </button>
                 </div>
 
                 <div className="mb-6">
                   <h4 className="text-xs font-medium text-text-secondary mb-3">
-                    Stickers & Emojis
+                    {t("assets.graphics.stickers_emojis")}
                   </h4>
                   <div className="grid grid-cols-4 gap-2">
                     {["😀", "🎉", "❤️", "⭐", "🔥", "👍", "🎬", "🎵"].map(
@@ -1393,16 +1399,16 @@ export const AssetsPanel: React.FC = () => {
                         !tracksBefore.some((bt) => bt.id === t.id),
                     );
                     if (newTextTrack) {
-                      createTextClip(newTextTrack.id, 0, "New Title");
+                      createTextClip(newTextTrack.id, 0, t("assets.text.new_title"));
                     }
                   }}
                   className="w-full py-4 bg-background-tertiary rounded-lg border border-border hover:border-primary/50 hover:bg-primary/5 transition-all text-center"
                 >
                   <span className="text-lg font-bold text-text-primary">
-                    Add Title
+                    {t("assets.text.add_title")}
                   </span>
                   <p className="text-xs text-text-muted mt-1">
-                    Click to add text to timeline
+                    {t("assets.text.click_add")}
                   </p>
                 </button>
                 <div className="grid grid-cols-2 gap-2">
@@ -1471,7 +1477,7 @@ export const AssetsPanel: React.FC = () => {
                           createTextClip(
                             newTextTrack.id,
                             0,
-                            preset.text,
+                            t(`assets.text.new_${preset.name.toLowerCase().replace(" ", "_")}`),
                             5,
                             preset.style,
                           );
@@ -1479,7 +1485,7 @@ export const AssetsPanel: React.FC = () => {
                       }}
                       className="py-3 bg-background-tertiary rounded-lg border border-border hover:border-primary/50 hover:bg-primary/5 transition-all text-xs text-text-secondary hover:text-text-primary"
                     >
-                      {preset.name}
+                      {t(`assets.text.${preset.name.toLowerCase().replace(" ", "_")}`)}
                     </button>
                   ))}
                 </div>
@@ -1524,7 +1530,7 @@ export const AssetsPanel: React.FC = () => {
             <button
               key={tab.value}
               onClick={() => setActiveTab(tab.value)}
-              title={tab.description}
+              title={t(`assets.tabs.${tab.value}.desc`)}
               className={`relative flex flex-col items-center justify-center w-11 h-11 rounded-xl transition-all group ${
                 isActive
                   ? "bg-background-elevated text-primary shadow-sm ring-1 ring-primary/20"
@@ -1544,17 +1550,17 @@ export const AssetsPanel: React.FC = () => {
       <div className="flex-1 flex flex-col min-w-0 h-full bg-background-secondary relative">
         {/* Loading overlay */}
         {isImporting && (
-          <LoadingIndicator message={importProgress || "Importing media..."} />
+          <LoadingIndicator message={importProgress || t("assets.importing")} />
         )}
         
         {/* Panel Header */}
         <div className="px-5 py-4 flex items-center justify-between border-b border-border/40 shrink-0">
           <div>
             <h2 className="font-bold text-sm text-text-primary tracking-tight">
-              {ASSETS_TABS.find((t) => t.value === activeTab)?.label}
+              {t(`assets.tabs.${activeTab}.label`)}
             </h2>
             <p className="text-[11px] text-text-muted mt-0.5 line-clamp-1">
-              {ASSETS_TABS.find((t) => t.value === activeTab)?.description}
+              {t(`assets.tabs.${activeTab}.desc`)}
             </p>
           </div>
           <div className="flex gap-1 shrink-0">

@@ -7,8 +7,10 @@ import type {
   TemplateCategory,
 } from "@openreel/core";
 import { TEMPLATE_CATEGORIES } from "@openreel/core";
+import { useTranslation } from "../../../hooks/use-translation";
 
 export const TemplatesTab: React.FC = () => {
+  const { t } = useTranslation();
   const getTemplateEngine = useEngineStore((s) => s.getTemplateEngine);
   const [templates, setTemplates] = useState<TemplateSummary[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -53,7 +55,7 @@ export const TemplatesTab: React.FC = () => {
         useProjectStore.getState().project.timeline.tracks.length > 0;
       if (hasClips) {
         const confirmed = window.confirm(
-          "Applying a template will replace your current project. Continue?",
+          t('welcome.templates_tab_confirm_replace')
         );
         if (!confirmed) return;
       }
@@ -84,7 +86,7 @@ export const TemplatesTab: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12 text-text-muted text-xs">
-        Loading templates...
+        {t('welcome.templates_tab_loading')}
       </div>
     );
   }
@@ -98,7 +100,7 @@ export const TemplatesTab: React.FC = () => {
         />
         <input
           type="text"
-          placeholder="Search templates..."
+          placeholder={t('welcome.search_templates')}
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="w-full pl-8 pr-3 py-2 text-xs bg-background-secondary border border-border rounded-lg text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary/50"
@@ -114,7 +116,7 @@ export const TemplatesTab: React.FC = () => {
               : "bg-background-tertiary border-border text-text-muted hover:border-primary/50"
           }`}
         >
-          All
+          {t('welcome.templates_all')}
         </button>
         {TEMPLATE_CATEGORIES.slice(0, 6).map((cat) => (
           <button
@@ -126,14 +128,14 @@ export const TemplatesTab: React.FC = () => {
                 : "bg-background-tertiary border-border text-text-muted hover:border-primary/50"
             }`}
           >
-            {cat.name}
+            {t('welcome.categories.' + cat.id, cat.name)}
           </button>
         ))}
       </div>
 
       {filteredTemplates.length === 0 ? (
         <div className="text-center py-8 text-text-muted text-xs">
-          No templates found
+          {t('welcome.no_templates_found')}
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-2">
@@ -169,7 +171,7 @@ export const TemplatesTab: React.FC = () => {
               </div>
               {applying === template.id && (
                 <div className="absolute inset-0 bg-background-primary/80 rounded-lg flex items-center justify-center">
-                  <span className="text-[10px] text-primary">Applying...</span>
+                  <span className="text-[10px] text-primary">{t('welcome.templates_tab_applying')}</span>
                 </div>
               )}
             </button>

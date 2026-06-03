@@ -28,6 +28,7 @@ import {
 } from "../../../services/secure-storage";
 import { MasterPasswordDialog } from "./MasterPasswordDialog";
 import { toast } from "../../../stores/notification-store";
+import { useTranslation } from "../../../hooks/use-translation";
 
 export const ApiKeysPanel: React.FC = () => {
   const {
@@ -46,6 +47,8 @@ export const ApiKeysPanel: React.FC = () => {
     setCustomAnthropicModel,
     setCustomGeminiModel,
   } = useSettingsStore();
+
+  const { t } = useTranslation();
 
   const [passwordSet, setPasswordSet] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
@@ -81,7 +84,7 @@ export const ApiKeysPanel: React.FC = () => {
         await setupMasterPassword(password);
         setPasswordDialogMode(null);
         await refreshState();
-        toast.success("Master password set", "Your API keys will be encrypted with AES-256-GCM.");
+        toast.success(t("api_keys.toasts.setup_success"), t("api_keys.toasts.setup_success_desc"));
         return true;
       }
 
@@ -90,7 +93,7 @@ export const ApiKeysPanel: React.FC = () => {
         if (success) {
           setPasswordDialogMode(null);
           await refreshState();
-          toast.success("Session unlocked", "You can now manage API keys.");
+          toast.success(t("api_keys.toasts.unlock_success"), t("api_keys.toasts.unlock_success_desc"));
         }
         return success;
       }
@@ -100,7 +103,7 @@ export const ApiKeysPanel: React.FC = () => {
         if (success) {
           setPasswordDialogMode(null);
           await refreshState();
-          toast.success("Password changed", "All keys have been re-encrypted.");
+          toast.success(t("api_keys.toasts.change_success"), t("api_keys.toasts.change_success_desc"));
         }
         return success;
       }
@@ -123,9 +126,9 @@ export const ApiKeysPanel: React.FC = () => {
         setNewKeyValue("");
         setAddingService(null);
         await refreshState();
-        toast.success(`${service.label} key saved`, "API key encrypted and stored.");
+        toast.success(t("api_keys.toasts.save_success", { name: service.label }), t("api_keys.toasts.save_success_desc"));
       } catch (err) {
-        toast.error("Failed to save", err instanceof Error ? err.message : "Unknown error");
+        toast.error(t("api_keys.toasts.save_failed"), err instanceof Error ? err.message : "Unknown error");
       }
     },
     [newKeyValue, addConfiguredService, refreshState],
@@ -143,9 +146,9 @@ export const ApiKeysPanel: React.FC = () => {
           return next;
         });
         await refreshState();
-        toast.success(`${service?.label ?? serviceId} key removed`);
+        toast.success(t("api_keys.toasts.delete_success", { name: service?.label ?? serviceId }));
       } catch (err) {
-        toast.error("Failed to delete", err instanceof Error ? err.message : "Unknown error");
+        toast.error(t("api_keys.toasts.delete_failed"), err instanceof Error ? err.message : "Unknown error");
       }
     },
     [removeConfiguredService, refreshState],
@@ -164,7 +167,7 @@ export const ApiKeysPanel: React.FC = () => {
         setShowKey((prev) => ({ ...prev, [serviceId]: true }));
       }
     } catch (err) {
-      toast.error("Failed to decrypt", err instanceof Error ? err.message : "Unknown error");
+      toast.error(t("api_keys.toasts.decrypt_failed"), err instanceof Error ? err.message : "Unknown error");
     }
   }, [revealedKeys]);
 
@@ -188,15 +191,14 @@ export const ApiKeysPanel: React.FC = () => {
           <Shield size={32} className="text-primary" />
         </div>
         <h3 className="text-lg font-medium text-text-primary mb-2">
-          Secure API Key Storage
+          {t("api_keys.title")}
         </h3>
         <p className="text-sm text-text-muted mb-6 max-w-sm">
-          Set up a master password to encrypt and store your API keys locally.
-          Keys are encrypted with AES-256-GCM and never leave your browser.
+          {t("api_keys.desc")}
         </p>
         <Button onClick={() => setPasswordDialogMode("setup")}>
           <KeyRound size={16} className="mr-2" />
-          Set Up Master Password
+          {t("api_keys.btn_setup")}
         </Button>
 
         {passwordDialogMode && (
@@ -219,14 +221,14 @@ export const ApiKeysPanel: React.FC = () => {
           <Lock size={32} className="text-amber-500" />
         </div>
         <h3 className="text-lg font-medium text-text-primary mb-2">
-          Session Locked
+          {t("api_keys.locked_title")}
         </h3>
         <p className="text-sm text-text-muted mb-6 max-w-sm">
-          Enter your master password to view and manage API keys.
+          {t("api_keys.locked_desc")}
         </p>
         <Button onClick={() => setPasswordDialogMode("unlock")}>
           <Unlock size={16} className="mr-2" />
-          Unlock
+          {t("api_keys.btn_unlock")}
         </Button>
 
         {passwordDialogMode && (
@@ -249,7 +251,7 @@ export const ApiKeysPanel: React.FC = () => {
         <div className="flex items-center gap-2 text-sm text-text-muted">
           <Shield size={14} className="text-primary" />
           <span>
-            {storedKeys.length} key{storedKeys.length !== 1 ? "s" : ""} stored
+            {t("api_keys.stored_count", { count: storedKeys.length, plural: storedKeys.length !== 1 ? "s" : "" })}
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -259,11 +261,11 @@ export const ApiKeysPanel: React.FC = () => {
             onClick={() => setPasswordDialogMode("change")}
           >
             <Key size={14} className="mr-1" />
-            Change Password
+            {t("api_keys.btn_change")}
           </Button>
           <Button variant="outline" size="sm" onClick={handleLock}>
             <Lock size={14} className="mr-1" />
-            Lock
+            {t("api_keys.btn_lock")}
           </Button>
         </div>
       </div>
@@ -300,14 +302,14 @@ export const ApiKeysPanel: React.FC = () => {
                   <button
                     onClick={() => handleRevealKey(stored.id)}
                     className="p-1.5 rounded hover:bg-background-tertiary text-text-muted hover:text-text-primary transition-colors"
-                    title={isRevealed ? "Hide key" : "Show key"}
+                    title={isRevealed ? t("api_keys.hide_key") : t("api_keys.show_key")}
                   >
                     {isRevealed ? <EyeOff size={14} /> : <Eye size={14} />}
                   </button>
                   <button
                     onClick={() => handleDeleteKey(stored.id)}
                     className="p-1.5 rounded hover:bg-error/10 text-text-muted hover:text-error transition-colors"
-                    title="Delete key"
+                    title={t("api_keys.delete_key")}
                   >
                     <Trash2 size={14} />
                   </button>
@@ -330,7 +332,7 @@ export const ApiKeysPanel: React.FC = () => {
                 <div className="mt-3 space-y-3">
                   <div className="space-y-1">
                     <label className="block text-[11px] font-medium text-text-secondary">
-                      Custom Endpoint Base URL (Optional)
+                      {t("api_keys.custom_endpoint_base")}
                     </label>
                     <Input
                       type="text"
@@ -340,12 +342,12 @@ export const ApiKeysPanel: React.FC = () => {
                       className="font-mono text-xs"
                     />
                     <p className="text-[10px] text-text-muted">
-                      Override default OpenAI API endpoint. Useful for third-party providers (e.g., Mimo, DeepSeek, OpenRouter).
+                      {t("api_keys.custom_endpoint_base_desc")}
                     </p>
                   </div>
                   <div className="space-y-1">
                     <label className="block text-[11px] font-medium text-text-secondary">
-                      Custom Model Name (Optional)
+                      {t("api_keys.custom_model")}
                     </label>
                     <Input
                       type="text"
@@ -355,7 +357,7 @@ export const ApiKeysPanel: React.FC = () => {
                       className="font-mono text-xs"
                     />
                     <p className="text-[10px] text-text-muted">
-                      Optional. For MiMo (xiaomimimo.com), defaults to <strong>mimo-v2.5</strong> automatically. For standard OpenAI, defaults to <code>gpt-4o-mini</code>.
+                      {t("api_keys.custom_model_desc")}
                     </p>
                   </div>
                 </div>
@@ -365,7 +367,7 @@ export const ApiKeysPanel: React.FC = () => {
                 <div className="mt-3 space-y-3">
                   <div className="space-y-1">
                     <label className="block text-[11px] font-medium text-text-secondary">
-                      Custom Endpoint Base URL (Optional)
+                      {t("api_keys.custom_endpoint_base")}
                     </label>
                     <Input
                       type="text"
@@ -375,12 +377,12 @@ export const ApiKeysPanel: React.FC = () => {
                       className="font-mono text-xs"
                     />
                     <p className="text-[10px] text-text-muted">
-                      Override default Anthropic API endpoint. Useful for compatible custom proxy endpoints.
+                      {t("api_keys.custom_endpoint_base_desc")}
                     </p>
                   </div>
                   <div className="space-y-1">
                     <label className="block text-[11px] font-medium text-text-secondary">
-                      Custom Model Name (Optional)
+                      {t("api_keys.custom_model")}
                     </label>
                     <Input
                       type="text"
@@ -390,7 +392,7 @@ export const ApiKeysPanel: React.FC = () => {
                       className="font-mono text-xs"
                     />
                     <p className="text-[10px] text-text-muted">
-                      Specify the custom model name to use when calling your custom endpoint.
+                      {t("api_keys.custom_model_desc")}
                     </p>
                   </div>
                 </div>
@@ -400,7 +402,7 @@ export const ApiKeysPanel: React.FC = () => {
                 <div className="mt-3 space-y-3">
                   <div className="space-y-1">
                     <label className="block text-[11px] font-medium text-text-secondary">
-                      Custom Endpoint Base URL (Optional)
+                      {t("api_keys.custom_endpoint_base")}
                     </label>
                     <Input
                       type="text"
@@ -410,12 +412,12 @@ export const ApiKeysPanel: React.FC = () => {
                       className="font-mono text-xs"
                     />
                     <p className="text-[10px] text-text-muted">
-                      Override default Gemini API endpoint. Useful for compatible custom proxy endpoints or reverse proxies.
+                      {t("api_keys.custom_endpoint_base_desc")}
                     </p>
                   </div>
                   <div className="space-y-1">
                     <label className="block text-[11px] font-medium text-text-secondary">
-                      Custom Model Name (Optional)
+                      {t("api_keys.custom_model")}
                     </label>
                     <Input
                       type="text"
@@ -425,7 +427,7 @@ export const ApiKeysPanel: React.FC = () => {
                       className="font-mono text-xs"
                     />
                     <p className="text-[10px] text-text-muted">
-                      Specify the custom Gemini model name to use when calling your endpoint.
+                      {t("api_keys.custom_model_desc")}
                     </p>
                   </div>
                 </div>
@@ -446,15 +448,16 @@ export const ApiKeysPanel: React.FC = () => {
           <div className="flex items-center gap-2 mb-3">
             <Plus size={14} className="text-primary" />
             <span className="text-sm font-medium text-text-primary">
-              Add{" "}
-              {SERVICE_REGISTRY.find((s) => s.id === addingService)?.label} Key
+              {t("api_keys.add_key_btn", {
+                name: SERVICE_REGISTRY.find((s) => s.id === addingService)?.label ?? "",
+              })}
             </span>
           </div>
           <Input
             type="password"
             value={newKeyValue}
             onChange={(e) => setNewKeyValue(e.target.value)}
-            placeholder="Paste your API key here"
+            placeholder={t("api_keys.key_placeholder")}
             autoFocus
             className="mb-3 font-mono text-xs"
           />
@@ -462,7 +465,7 @@ export const ApiKeysPanel: React.FC = () => {
           {addingService === "openai" && (
             <div className="mb-3 space-y-1 text-left">
               <label className="block text-[11px] font-medium text-text-secondary">
-                Custom Endpoint Base URL (Optional)
+                {t("api_keys.custom_endpoint_base")}
               </label>
               <Input
                 type="text"
@@ -472,7 +475,7 @@ export const ApiKeysPanel: React.FC = () => {
                 className="font-mono text-xs mb-1"
               />
               <p className="text-[10px] text-text-muted">
-                Override default OpenAI API endpoint. Useful for third-party providers (e.g., Mimo, DeepSeek, OpenRouter).
+                {t("api_keys.custom_endpoint_base_desc")}
               </p>
             </div>
           )}
@@ -480,7 +483,7 @@ export const ApiKeysPanel: React.FC = () => {
           {addingService === "anthropic" && (
             <div className="mb-3 space-y-1 text-left">
               <label className="block text-[11px] font-medium text-text-secondary">
-                Custom Endpoint Base URL (Optional)
+                {t("api_keys.custom_endpoint_base")}
               </label>
               <Input
                 type="text"
@@ -490,7 +493,7 @@ export const ApiKeysPanel: React.FC = () => {
                 className="font-mono text-xs mb-1"
               />
               <p className="text-[10px] text-text-muted">
-                Override default Anthropic API endpoint. Useful for compatible custom proxy endpoints.
+                {t("api_keys.custom_endpoint_base_desc")}
               </p>
             </div>
           )}
@@ -498,7 +501,7 @@ export const ApiKeysPanel: React.FC = () => {
           {addingService === "gemini" && (
             <div className="mb-3 space-y-1 text-left">
               <label className="block text-[11px] font-medium text-text-secondary">
-                Custom Endpoint Base URL (Optional)
+                {t("api_keys.custom_endpoint_base")}
               </label>
               <Input
                 type="text"
@@ -508,7 +511,7 @@ export const ApiKeysPanel: React.FC = () => {
                 className="font-mono text-xs mb-1"
               />
               <p className="text-[10px] text-text-muted">
-                Override default Gemini API endpoint. Useful for compatible custom proxy endpoints or reverse proxies.
+                {t("api_keys.custom_endpoint_base_desc")}
               </p>
             </div>
           )}
@@ -522,21 +525,21 @@ export const ApiKeysPanel: React.FC = () => {
                 setNewKeyValue("");
               }}
             >
-              Cancel
+              {t("api_keys.cancel_btn")}
             </Button>
             <Button
               size="sm"
               onClick={() => handleSaveKey(addingService)}
               disabled={!newKeyValue.trim()}
             >
-              Save Key
+              {t("api_keys.save_key_btn")}
             </Button>
           </div>
         </div>
       ) : availableServices.length > 0 ? (
         <div>
           <h4 className="text-sm font-medium text-text-secondary mb-3">
-            Add API Key
+            {t("api_keys.add_key_title")}
           </h4>
           <div className="grid gap-2">
             {availableServices.map((service) => (

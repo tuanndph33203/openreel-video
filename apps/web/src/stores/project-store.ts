@@ -55,7 +55,7 @@ import {
 } from "../services/auto-save";
 import { useEngineStore } from "./engine-store";
 import { getMediaBridge, initializeMediaBridge } from "../bridges/media-bridge";
-import { isTauri, tauriImportMedia } from "../bridges/tauri-bridge";
+import { isTauri, tauriImportMedia, tauriGenerateProxy } from "../bridges/tauri-bridge";
 import { getGraphicsBridge } from "../bridges/graphics-bridge";
 import {
   createEmptyProject,
@@ -1885,6 +1885,46 @@ export const useProjectStore = create<ProjectState>()(
           };
 
           set({ project: updatedProject });
+
+          if (isTauri() && file.tauriPath && mediaType === "video") {
+            const originalPath = file.tauriPath;
+            const extIndex = originalPath.lastIndexOf('.');
+            const proxyPath = extIndex !== -1
+              ? `${originalPath.substring(0, extIndex)}.proxy.mp4`
+              : `${originalPath}.proxy.mp4`;
+
+            (async () => {
+              try {
+                console.log(`[ProjectStore] Generating proxy for ${file.name} to ${proxyPath}`);
+                await tauriGenerateProxy(originalPath, proxyPath);
+                
+                const currentProject = get().project;
+                const mediaIndex = currentProject.mediaLibrary.items.findIndex(
+                  (m) => m.id === newMediaItem.id,
+                );
+                if (mediaIndex !== -1) {
+                  const updatedItems = [...currentProject.mediaLibrary.items];
+                  updatedItems[mediaIndex] = {
+                    ...updatedItems[mediaIndex],
+                    proxyPath,
+                    hasProxy: true,
+                  };
+                  set({
+                    project: {
+                      ...currentProject,
+                      mediaLibrary: {
+                        ...currentProject.mediaLibrary,
+                        items: updatedItems,
+                      },
+                    },
+                  });
+                  console.log(`[ProjectStore] Media item ${newMediaItem.id} updated with proxyPath: ${proxyPath}`);
+                }
+              } catch (proxyErr) {
+                console.error(`[ProjectStore] Background proxy generation failed for ${file.name}:`, proxyErr);
+              }
+            })();
+          }
 
           if (!(isTauri() && file.tauriPath)) {
             const shouldSaveBlob = !storedHandle && file.size <= 20 * 1024 * 1024;

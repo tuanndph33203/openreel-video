@@ -26,6 +26,7 @@ import {
   type StickerClip,
 } from "@openreel/core";
 import { templateCloudService } from "../../services/template-cloud-service";
+import { useTranslation } from "../../hooks/use-translation";
 
 interface TemplateWithGraphics extends Template {
   timeline: Template["timeline"] & {
@@ -46,6 +47,7 @@ export const SaveTemplateDialog: React.FC<SaveTemplateDialogProps> = ({
   isOpen,
   onClose,
 }) => {
+  const { t } = useTranslation();
   const { project } = useProjectStore();
   const getTemplateEngine = useEngineStore((state) => state.getTemplateEngine);
   const getGraphicsEngine = useEngineStore((state) => state.getGraphicsEngine);
@@ -62,12 +64,12 @@ export const SaveTemplateDialog: React.FC<SaveTemplateDialogProps> = ({
 
   const handleSave = useCallback(async () => {
     if (!name.trim()) {
-      setError("Template name is required");
+      setError(t("save_template.err_name_required"));
       return;
     }
 
     if (!description.trim()) {
-      setError("Description is required");
+      setError(t("save_template.err_desc_required"));
       return;
     }
 
@@ -135,7 +137,7 @@ export const SaveTemplateDialog: React.FC<SaveTemplateDialogProps> = ({
         setCategory("custom");
       }, 1500);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save template");
+      setError(err instanceof Error ? err.message : t("save_template.err_save_failed"));
     } finally {
       setIsSaving(false);
     }
@@ -159,7 +161,7 @@ export const SaveTemplateDialog: React.FC<SaveTemplateDialogProps> = ({
       <DialogContent className="max-w-lg p-0 gap-0 bg-background border-border overflow-hidden">
         <DialogHeader className="p-4 border-b border-border space-y-0">
           <DialogTitle className="text-lg font-semibold text-text-primary">
-            Save as Template
+            {t("save_template.title")}
           </DialogTitle>
         </DialogHeader>
 
@@ -168,7 +170,7 @@ export const SaveTemplateDialog: React.FC<SaveTemplateDialogProps> = ({
             <div className="flex items-center gap-2 p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
               <Check size={16} className="text-green-400" />
               <span className="text-sm text-green-400">
-                Template saved successfully!
+                {t("save_template.success")}
               </span>
             </div>
           )}
@@ -182,41 +184,41 @@ export const SaveTemplateDialog: React.FC<SaveTemplateDialogProps> = ({
 
           <div className="space-y-2">
             <Label className="text-xs font-medium text-text-secondary">
-              Template Name <span className="text-red-400">*</span>
+              {t("save_template.name_label")} <span className="text-red-400">*</span>
             </Label>
             <Input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="My Awesome Template"
+              placeholder={t("save_template.name_placeholder")}
               className="bg-background-secondary border-border text-text-primary"
               maxLength={50}
             />
             <p className="text-[10px] text-text-muted">
-              {name.length}/50 characters
+              {t("save_template.chars_count", { count: name.length, total: 50 })}
             </p>
           </div>
 
           <div className="space-y-2">
             <Label className="text-xs font-medium text-text-secondary">
-              Description <span className="text-red-400">*</span>
+              {t("save_template.desc_label")} <span className="text-red-400">*</span>
             </Label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Describe what this template is for and how to use it..."
+              placeholder={t("save_template.desc_placeholder")}
               className="w-full px-3 py-2 text-sm bg-background-secondary border border-border rounded-lg text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
               rows={4}
               maxLength={500}
             />
             <p className="text-[10px] text-text-muted">
-              {description.length}/500 characters
+              {t("save_template.chars_count", { count: description.length, total: 500 })}
             </p>
           </div>
 
           <div className="space-y-2">
             <Label className="text-xs font-medium text-text-secondary">
-              Category
+              {t("save_template.cat_label")}
             </Label>
             <Select value={category} onValueChange={(value) => setCategory(value as TemplateCategory)}>
               <SelectTrigger className="w-full bg-background-secondary border-border text-text-primary">
@@ -234,33 +236,33 @@ export const SaveTemplateDialog: React.FC<SaveTemplateDialogProps> = ({
 
           <div className="space-y-2">
             <Label className="text-xs font-medium text-text-secondary">
-              Tags (comma-separated)
+              {t("save_template.tags_label")}
             </Label>
             <Input
               type="text"
               value={tags}
               onChange={(e) => setTags(e.target.value)}
-              placeholder="intro, animated, youtube"
+              placeholder={t("save_template.tags_placeholder")}
               className="bg-background-secondary border-border text-text-primary"
             />
           </div>
 
           <div className="space-y-2">
             <Label className="text-xs font-medium text-text-secondary">
-              Author Name
+              {t("save_template.author_label")}
             </Label>
             <Input
               type="text"
               value={author}
               onChange={(e) => setAuthor(e.target.value)}
-              placeholder="Your name or username"
+              placeholder={t("save_template.author_placeholder")}
               className="bg-background-secondary border-border text-text-primary"
             />
           </div>
 
           <div className="space-y-2">
             <Label className="text-xs font-medium text-text-secondary">
-              Save Location
+              {t("save_template.location_label")}
             </Label>
             <div className="grid grid-cols-2 gap-2">
               <button
@@ -272,7 +274,7 @@ export const SaveTemplateDialog: React.FC<SaveTemplateDialogProps> = ({
                 }`}
               >
                 <Cloud size={16} />
-                <span className="text-sm font-medium">Cloud</span>
+                <span className="text-sm font-medium">{t("save_template.location_cloud")}</span>
               </button>
               <button
                 onClick={() => setSaveLocation("local")}
@@ -283,20 +285,20 @@ export const SaveTemplateDialog: React.FC<SaveTemplateDialogProps> = ({
                 }`}
               >
                 <HardDrive size={16} />
-                <span className="text-sm font-medium">Local</span>
+                <span className="text-sm font-medium">{t("save_template.location_local")}</span>
               </button>
             </div>
             <p className="text-[10px] text-text-muted">
               {saveLocation === "cloud"
-                ? "Saved to cloud and accessible from any device"
-                : "Saved locally in your browser storage"}
+                ? t("save_template.location_cloud_desc")
+                : t("save_template.location_local_desc")}
             </p>
           </div>
         </div>
 
         <div className="flex items-center justify-end gap-2 p-4 border-t border-border">
           <Button variant="ghost" onClick={onClose} disabled={isSaving}>
-            Cancel
+            {t("save_template.cancel_btn")}
           </Button>
           <Button
             onClick={handleSave}
@@ -305,12 +307,12 @@ export const SaveTemplateDialog: React.FC<SaveTemplateDialogProps> = ({
             {isSaving ? (
               <>
                 <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
-                Saving...
+                {t("save_template.saving_btn")}
               </>
             ) : (
               <>
                 <Upload size={16} />
-                Save Template
+                {t("save_template.save_btn")}
               </>
             )}
           </Button>

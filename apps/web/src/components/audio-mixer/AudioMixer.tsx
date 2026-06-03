@@ -10,6 +10,7 @@ import { ChannelStrip } from "./ChannelStrip";
 import type { ChannelStripState } from "./types";
 import { volumeToDb, formatDb } from "./types";
 import { getRealtimeAudioGraph } from "@openreel/core";
+import { useTranslation } from "../../hooks/use-translation";
 
 export interface AudioMixerProps {
   /** Whether the mixer panel is visible */
@@ -27,6 +28,7 @@ const MasterChannel: React.FC<{
   rmsLevel: number;
   onVolumeChange: (volume: number) => void;
 }> = ({ volume, peakLevel, rmsLevel, onVolumeChange }) => {
+  const { t } = useTranslation();
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       onVolumeChange(parseFloat(e.target.value));
@@ -46,7 +48,7 @@ const MasterChannel: React.FC<{
 
   return (
     <div className="flex flex-col items-center gap-2 p-3 bg-gray-900 rounded-lg min-w-[100px] border border-gray-700">
-      <div className="text-xs text-gray-300 font-bold">MASTER</div>
+      <div className="text-xs text-gray-300 font-bold">{t("audio_mixer.master")}</div>
 
       {/* Stereo level meter */}
       <div className="flex gap-1 h-32 w-6">
@@ -103,7 +105,7 @@ const MasterChannel: React.FC<{
  [&::-moz-range-thumb]:rounded
  [&::-moz-range-thumb]:cursor-pointer
  [&::-moz-range-thumb]:border-0"
-          aria-label="Master volume fader"
+          aria-label={t("audio_mixer.master_fader_aria")}
         />
       </div>
     </div>
@@ -120,6 +122,7 @@ export const AudioMixer: React.FC<AudioMixerProps> = ({
   visible = true,
   onClose,
 }) => {
+  const { t } = useTranslation();
   const project = useProjectStore((state) => state.project);
   const muteTrack = useProjectStore((state) => state.muteTrack);
   const soloTrack = useProjectStore((state) => state.soloTrack);
@@ -304,12 +307,12 @@ export const AudioMixer: React.FC<AudioMixerProps> = ({
     >
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-white">Audio Mixer</h2>
+        <h2 className="text-lg font-semibold text-white">{t("audio_mixer.title")}</h2>
         {onClose && (
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-white transition-colors"
-            aria-label="Close mixer"
+            aria-label={t("audio_mixer.close_mixer")}
           >
             ✕
           </button>
@@ -333,8 +336,7 @@ export const AudioMixer: React.FC<AudioMixerProps> = ({
           ))
         ) : (
           <div className="text-gray-500 text-sm py-8 px-4">
-            No audio tracks in timeline. Add audio or video tracks to see
-            channel strips.
+            {t("audio_mixer.no_tracks")}
           </div>
         )}
 
@@ -355,14 +357,16 @@ export const AudioMixer: React.FC<AudioMixerProps> = ({
       {/* Status bar */}
       <div className="mt-3 pt-3 border-t border-gray-800 flex items-center justify-between text-xs text-gray-500">
         <span>
-          {channels.length} channel{channels.length !== 1 ? "s" : ""}
+          {t("audio_mixer.channels_count", { count: channels.length, plural: channels.length !== 1 ? "s" : "" })}
           {hasSoloedTracks && (
-            <span className="ml-2 text-yellow-500">• Solo active</span>
+            <span className="ml-2 text-yellow-500">{t("audio_mixer.solo_active")}</span>
           )}
         </span>
         <span>
-          Sample Rate: {project.settings.sampleRate}Hz | Channels:{" "}
-          {project.settings.channels}
+          {t("audio_mixer.sample_rate_channels", {
+            sampleRate: project.settings.sampleRate,
+            channels: project.settings.channels,
+          })}
         </span>
       </div>
     </div>

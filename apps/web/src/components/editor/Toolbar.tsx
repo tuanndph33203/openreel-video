@@ -48,6 +48,7 @@ import { SettingsDialog } from "./settings/SettingsDialog";
 import { toast } from "../../stores/notification-store";
 import { isTauri, invokeTauri } from "../../bridges/tauri-bridge";
 import { useSettingsStore } from "../../stores/settings-store";
+import { useTranslation } from "../../hooks/use-translation";
 import { useAnalytics, AnalyticsEvents } from "../../hooks/useAnalytics";
 import { startTour, ONBOARDING_KEY, startMoGraphTour, MOGRAPH_TOUR_KEY } from "./tour";
 import {
@@ -84,6 +85,7 @@ interface ExportState {
 
 export const Toolbar: React.FC = () => {
   const { project, getFullProject } = useProjectStore();
+  const { t } = useTranslation();
   const {
     openModal,
     selectedItems,
@@ -337,6 +339,55 @@ export const Toolbar: React.FC = () => {
       return handle.createWritable();
     }
 
+    // Try using Origin Private File System (OPFS) as a stream-based memory-safe fallback
+    if (typeof navigator !== "undefined" && navigator.storage && navigator.storage.getDirectory) {
+      try {
+        const root = await navigator.storage.getDirectory();
+        const opfsFileHandle = await root.getFileHandle(`temp_export_${Date.now()}.${ext}`, { create: true });
+        const opfsWritable = await opfsFileHandle.createWritable();
+
+        return {
+          seek(position: number) {
+            return opfsWritable.seek(position);
+          },
+          write(data: unknown) {
+            return opfsWritable.write(data as any);
+          },
+          async close() {
+            await opfsWritable.close();
+            const file = await opfsFileHandle.getFile();
+            const url = URL.createObjectURL(file);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            // Clean up temp file from OPFS in background
+            setTimeout(async () => {
+              try {
+                const r = await navigator.storage.getDirectory();
+                await r.removeEntry(opfsFileHandle.name);
+              } catch (err) {
+                console.warn("[OPFS] Failed to remove temp file:", err);
+              }
+            }, 1000);
+          },
+          abort() {
+            return opfsWritable.abort();
+          },
+          truncate(size: number) {
+            return opfsWritable.truncate(size);
+          },
+        } as unknown as FileSystemWritableFileStream;
+      } catch (opfsErr) {
+        console.warn("[OPFS] Failed to initialize OPFS stream, falling back to RAM buffer:", opfsErr);
+      }
+    }
+
+    // Safe fallback: Accumulate chunks in a growing RAM buffer (may crash on extremely large videos in older browsers)
     let buffer = new Uint8Array(16 * 1024 * 1024);
     let length = 0;
     let cursor = 0;
@@ -394,9 +445,7 @@ export const Toolbar: React.FC = () => {
         return Promise.resolve();
       },
     } as unknown as FileSystemWritableFileStream;
-  }, []);
-
-  const handleExport = useCallback(
+  }, []);  const handleExport = useCallback(
     async (type: ExportType) => {
       setIsExportOpen(false);
 
@@ -652,9 +701,9 @@ export const Toolbar: React.FC = () => {
     separator?: boolean;
   }> = [
     {
-      label: "MP4 Standard",
+      label: t("toolbar.export_standard"),
       icon: Zap,
-      desc: `${projectRes} H.264 - Web & social`,
+      desc: `${projectRes} ${t("toolbar.export_standard_desc")}`,
       type: "mp4",
       recommended: true,
     },
@@ -669,28 +718,28 @@ export const Toolbar: React.FC = () => {
       ? []
       : [
           {
-            label: "4K Standard",
+            label: t("toolbar.export_4k"),
             icon: FileVideo,
-            desc: "3840×2160 - YouTube 4K",
+            desc: t("toolbar.export_4k_desc"),
             type: "4k" as ExportType,
           },
         ]),
     {
-      label: "1080p High Quality",
+      label: t("toolbar.export_1080p_high"),
       icon: FileVideo,
-      desc: "1920×1080 30fps - High bitrate",
+      desc: t("toolbar.export_1080p_high_desc"),
       type: "1080p-high",
     },
     {
-      label: "1080p 60fps",
+      label: t("toolbar.export_1080p_60"),
       icon: FileVideo,
-      desc: "1920×1080 - Smooth playback",
+      desc: t("toolbar.export_1080p_60_desc"),
       type: "1080p-60",
     },
     {
-      label: "Audio Only (WAV)",
+      label: t("toolbar.export_audio"),
       icon: Music,
-      desc: "Uncompressed audio",
+      desc: t("toolbar.export_audio_desc"),
       type: "wav",
     },
   ];
@@ -780,7 +829,7 @@ export const Toolbar: React.FC = () => {
               </span>
             </button>
           </TooltipTrigger>
-          <TooltipContent>Back to Home</TooltipContent>
+          <TooltipContent>{t("welcome.back_to_home")}</TooltipContent>
         </Tooltip>
         <div className="h-6 w-px bg-border hidden md:block" />
         <ProjectSwitcher />
@@ -818,8 +867,8 @@ export const Toolbar: React.FC = () => {
             }`}
           >
             {hasSelectedClip
-              ? "Search effects for selected clip..."
-              : "Search tools, effects, or ask AI..."}
+              ? t("toolbar.search_effects")
+              : t("toolbar.search_placeholder")}
           </span>
           <div className="flex items-center gap-1.5 px-2 py-0.5 rounded border border-border bg-background-tertiary">
             <Command size={10} className="text-text-muted" />
@@ -840,16 +889,16 @@ export const Toolbar: React.FC = () => {
           <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuItem onClick={handleStartTour} className="gap-2">
               <Play size={14} />
-              <span>Editor Tour</span>
+              <span>{t("toolbar.tour_editor")}</span>
             </DropdownMenuItem>
             <DropdownMenuItem onClick={handleStartMoGraphTour} className="gap-2">
               <Sparkles size={14} className="text-purple-400" />
-              <span>Animation & Effects Tour</span>
+              <span>{t("toolbar.tour_mograph")}</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem className="gap-2 text-text-muted">
               <Command size={14} />
-              <span>Press ? for shortcuts</span>
+              <span>{t("toolbar.shortcuts_hint")}</span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -870,7 +919,7 @@ export const Toolbar: React.FC = () => {
             </button>
           </TooltipTrigger>
           <TooltipContent>
-            <p>Theme: {themeMode}</p>
+            <p>{t("toolbar.theme", { mode: themeMode })}</p>
           </TooltipContent>
         </Tooltip>
 
@@ -884,7 +933,7 @@ export const Toolbar: React.FC = () => {
             </button>
           </TooltipTrigger>
           <TooltipContent>
-            <p>Settings & API Keys</p>
+            <p>{t("toolbar.settings")}</p>
           </TooltipContent>
         </Tooltip>
 
@@ -898,7 +947,7 @@ export const Toolbar: React.FC = () => {
             </button>
           </TooltipTrigger>
           <TooltipContent>
-            <p>Project JSON - Export/Import</p>
+            <p>{t("toolbar.project_json_tooltip")}</p>
           </TooltipContent>
         </Tooltip>
 
@@ -916,7 +965,7 @@ export const Toolbar: React.FC = () => {
             </button>
           </TooltipTrigger>
           <TooltipContent>
-            <p>Keyframe Editor</p>
+            <p>{t("toolbar.keyframe_editor")}</p>
           </TooltipContent>
         </Tooltip>
 
@@ -934,7 +983,7 @@ export const Toolbar: React.FC = () => {
             </button>
           </TooltipTrigger>
           <TooltipContent>
-            <p>Audio Mixer – track volume and master level</p>
+            <p>{t("toolbar.audio_mixer_tooltip")}</p>
           </TooltipContent>
         </Tooltip>
 
@@ -952,7 +1001,7 @@ export const Toolbar: React.FC = () => {
             </button>
           </TooltipTrigger>
           <TooltipContent>
-            <p>History - Undo/Redo</p>
+            <p>{t("toolbar.history_tooltip")}</p>
           </TooltipContent>
         </Tooltip>
 
@@ -963,11 +1012,11 @@ export const Toolbar: React.FC = () => {
               className="flex items-center gap-2 px-3 py-2 bg-error/10 hover:bg-error/20 text-error rounded-lg transition-colors"
             >
               <Circle size={14} className="fill-current" />
-              <span className="text-sm font-medium">Record</span>
+              <span className="text-sm font-medium">{t("toolbar.record")}</span>
             </button>
           </TooltipTrigger>
           <TooltipContent>
-            <p>Screen Recording</p>
+            <p>{t("toolbar.screen_recording")}</p>
           </TooltipContent>
         </Tooltip>
 
@@ -990,20 +1039,20 @@ export const Toolbar: React.FC = () => {
               )}
               <span className="text-sm font-medium">
                 {needsAuth
-                  ? `Authorize: ${project?.settings.automationConfig?.watchFolderName}`
+                  ? t("toolbar.authorize_folder", { name: project?.settings.automationConfig?.watchFolderName || "" })
                   : project?.settings.automationConfig?.watchFolderName 
-                    ? `Watching: ${project.settings.automationConfig.watchFolderName}` 
-                    : "Watch Folder"}
+                    ? t("toolbar.watching_folder", { name: project.settings.automationConfig.watchFolderName }) 
+                    : t("toolbar.watch_folder")}
               </span>
             </button>
           </TooltipTrigger>
           <TooltipContent>
             <p>
               {needsAuth
-                ? `Permission required to watch folder "${project?.settings.automationConfig?.watchFolderName}". Click to authorize.`
+                ? t("toolbar.watch_folder_auth_desc", { name: project?.settings.automationConfig?.watchFolderName || "" })
                 : project?.settings.automationConfig?.watchFolderName 
-                  ? `Currently monitoring "${project.settings.automationConfig.watchFolderName}". Click to modify.`
-                  : "Select a folder to auto-process videos for this project"}
+                  ? t("toolbar.watch_folder_monitoring_desc", { name: project.settings.automationConfig.watchFolderName })
+                  : t("toolbar.watch_folder_desc")}
             </p>
           </TooltipContent>
         </Tooltip>
@@ -1045,7 +1094,7 @@ export const Toolbar: React.FC = () => {
           ) : exportState.complete ? (
             <div className="h-10 px-4 bg-primary/10 border border-primary/30 rounded-lg flex items-center gap-2">
               <Check size={14} className="text-primary" />
-              <span className="text-xs text-primary">Downloaded!</span>
+              <span className="text-xs text-primary">{t("toolbar.downloaded")}</span>
             </div>
           ) : (
             <DropdownMenu open={isExportOpen} onOpenChange={setIsExportOpen}>
@@ -1055,7 +1104,7 @@ export const Toolbar: React.FC = () => {
                     isExportOpen ? "translate-y-0 shadow-none" : ""
                   }`}
                 >
-                  <span className="text-sm tracking-wider">EXPORT</span>
+                  <span className="text-sm tracking-wider">{t("toolbar.export").toUpperCase()}</span>
                   <ChevronDown
                     size={14}
                     className={`transition-transform duration-200 ${
@@ -1099,7 +1148,7 @@ export const Toolbar: React.FC = () => {
                             {option.label}
                             {option.recommended && (
                               <span className="ml-2 text-[10px] bg-primary/20 text-primary px-1.5 py-0.5 rounded">
-                                Best Match
+                                {t("toolbar.best_match")}
                               </span>
                             )}
                           </div>
@@ -1126,10 +1175,10 @@ export const Toolbar: React.FC = () => {
                     </div>
                     <div className="flex-1">
                       <div className="text-sm font-medium text-primary transition-colors">
-                        Custom Export...
+                        {t("toolbar.custom_export")}
                       </div>
                       <div className="text-xs text-text-muted mt-0.5">
-                        Full settings with AI upscaling
+                        {t("toolbar.custom_export_desc")}
                       </div>
                     </div>
                     <Settings
@@ -1173,7 +1222,7 @@ export const Toolbar: React.FC = () => {
           />
           <div className="fixed top-16 right-0 bottom-0 w-80 bg-background-secondary border-l border-border z-50 shadow-2xl animate-in slide-in-from-right duration-200">
             <div className="flex items-center justify-between p-3 border-b border-border">
-              <span className="text-sm font-medium text-text-primary">Action History</span>
+              <span className="text-sm font-medium text-text-primary">{t("toolbar.action_history")}</span>
               <button
                 onClick={() => setIsHistoryOpen(false)}
                 className="p-1.5 rounded hover:bg-background-tertiary text-text-muted hover:text-text-primary transition-colors"

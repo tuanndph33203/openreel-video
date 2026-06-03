@@ -19,11 +19,13 @@ import {
   EditingTemplateControls,
   getEditingTemplateDefaultControlValues,
 } from "./EditingTemplateControls";
+import { useTranslation } from "../../../hooks/use-translation";
 
 const formatCategoryLabel = (category: string): string =>
   category.replace(/-/g, " ");
 
 export const RecipesTab: React.FC = () => {
+  const { t } = useTranslation();
   const project = useProjectStore((state) => state.project);
   const getClip = useProjectStore((state) => state.getClip);
   const getMediaItem = useProjectStore((state) => state.getMediaItem);
@@ -157,8 +159,8 @@ export const RecipesTab: React.FC = () => {
   const handleApply = async (template: EditingTemplate): Promise<void> => {
     if (!selectedClip || !selectedTargetType) {
       toast.warning(
-        "Select a clip",
-        "Recipes apply to one selected video or image clip.",
+        t('recipes.select_clip'),
+        t('recipes.apply_on_one'),
       );
       return;
     }
@@ -174,15 +176,18 @@ export const RecipesTab: React.FC = () => {
 
       if (!applicationId) {
         toast.error(
-          "Could not apply recipe",
-          "This recipe could not be applied to the current clip.",
+          t('recipes.err_apply'),
+          t('recipes.err_apply_desc'),
         );
         return;
       }
 
       toast.success(
-        "Recipe applied",
-        `${template.name} was added to ${selectedMedia?.name || "the selected clip"}.`,
+        t('recipes.success_applied'),
+        t('recipes.success_applied_desc', {
+          name: template.name,
+          mediaName: selectedMedia?.name || t('recipes.selected_clip_default'),
+        }),
       );
     } finally {
       setApplyingTemplateId(null);
@@ -196,9 +201,9 @@ export const RecipesTab: React.FC = () => {
           <Sparkles size={24} />
         </div>
         <div>
-          <p className="text-sm font-semibold text-text-primary">Select a clip first</p>
+          <p className="text-sm font-semibold text-text-primary">{t('recipes.select_clip_first')}</p>
           <p className="mt-1.5 text-xs text-text-muted max-w-[240px] leading-relaxed mx-auto">
-            Choose a video or image in the timeline to apply clip-scoped recipes, looks, and caption treatments.
+            {t('recipes.select_clip_first_desc')}
           </p>
         </div>
       </div>
@@ -211,14 +216,14 @@ export const RecipesTab: React.FC = () => {
       <div className="p-4 border-b border-border bg-background-secondary/80 backdrop-blur sticky top-0 z-10 space-y-3">
         <div className="flex items-center gap-3 bg-background-tertiary rounded-xl p-2 pr-3 border border-border">
           <div className="w-10 h-10 rounded-lg bg-background-elevated flex items-center justify-center border border-border shrink-0">
-            {selectedTargetType === 'video' ? <span className="text-primary/70 text-[10px]">VIDEO</span> : <span className="text-primary/70 text-[10px]">IMAGE</span>}
+            {selectedTargetType === 'video' ? <span className="text-primary/70 text-[10px]">{t('recipes.video_tag')}</span> : <span className="text-primary/70 text-[10px]">{t('recipes.image_tag')}</span>}
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-xs font-semibold text-text-primary truncate" title={selectedMedia?.name || selectedClip.id}>
-              {selectedMedia?.name || 'Selected Clip'}
+              {selectedMedia?.name || t('recipes.selected_clip')}
             </p>
             <p className="text-[10px] text-text-muted mt-0.5">
-              {selectedClip.duration.toFixed(1)}s • {appliedTemplates.length} recipes applied
+              {selectedClip.duration.toFixed(1)}s • {t('recipes.recipes_applied', { count: appliedTemplates.length })}
             </p>
           </div>
         </div>
@@ -230,7 +235,7 @@ export const RecipesTab: React.FC = () => {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search recipes..."
+            placeholder={t('recipes.search_placeholder')}
             className="w-full h-9 pl-9 pr-3 rounded-lg border border-border bg-background-tertiary text-xs text-text-primary placeholder:text-text-muted outline-none focus:border-primary/50 transition-colors"
           />
         </div>
@@ -246,7 +251,7 @@ export const RecipesTab: React.FC = () => {
                 : "bg-background-tertiary text-text-muted hover:text-text-primary hover:bg-background-elevated border border-border/50"
             }`}
           >
-            ALL
+            {t('recipes.all_category')}
           </button>
           {EDITING_TEMPLATE_CATEGORIES.map((category) => (
             <button
@@ -258,7 +263,7 @@ export const RecipesTab: React.FC = () => {
                   : "bg-background-tertiary text-text-muted hover:text-text-primary hover:bg-background-elevated border border-border/50"
               }`}
             >
-              {category.name}
+              {t('recipes.categories.' + category.id, category.name)}
             </button>
           ))}
         </div>
@@ -267,8 +272,8 @@ export const RecipesTab: React.FC = () => {
       <div className="flex-1 p-4 space-y-3">
         {filteredTemplates.length === 0 ? (
           <div className="py-12 text-center">
-            <p className="text-text-secondary text-sm font-medium">No recipes match</p>
-            <p className="mt-2 text-xs text-text-muted">Try a different search or category.</p>
+            <p className="text-text-secondary text-sm font-medium">{t('recipes.no_recipes_match')}</p>
+            <p className="mt-2 text-xs text-text-muted">{t('recipes.try_different_search')}</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-3">
@@ -313,7 +318,7 @@ export const RecipesTab: React.FC = () => {
                         
                         <div className="flex items-center justify-between mt-2.5">
                           <span className="text-[9px] uppercase tracking-wider text-text-muted font-medium">
-                            {formatCategoryLabel(template.category)}
+                            {t('recipes.categories.' + template.category, formatCategoryLabel(template.category))}
                           </span>
                           <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                             {template.controls && template.controls.length > 0 && (
@@ -326,7 +331,7 @@ export const RecipesTab: React.FC = () => {
                                 }`}
                               >
                                 <SlidersHorizontal size={10} />
-                                Edit
+                                {t('recipes.btn_edit')}
                               </button>
                             )}
                             <button
@@ -334,7 +339,7 @@ export const RecipesTab: React.FC = () => {
                               disabled={applyingTemplateId !== null}
                               className="h-6 px-3 bg-primary text-black text-[10px] font-bold rounded transition-colors hover:bg-primary/80 disabled:opacity-50"
                             >
-                              {applyingTemplateId === template.id ? "Applying" : "Apply"}
+                              {applyingTemplateId === template.id ? t('recipes.btn_applying') : t('recipes.btn_apply')}
                             </button>
                           </div>
                         </div>

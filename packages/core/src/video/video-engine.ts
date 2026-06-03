@@ -623,10 +623,14 @@ export class VideoEngine {
         const clips = this.getClipsAtTime(track, time);
         for (const clip of clips) {
           const clipInfo = this.createClipRenderInfo(clip, time);
-          const mediaItem = (mediaLibrary?.items || []).find(
+          const originalMediaItem = (mediaLibrary?.items || []).find(
             (m) => m.id === clipInfo.mediaId,
           );
-          if (!mediaItem?.blob && !mediaItem?.filePath) continue;
+          if (!originalMediaItem?.blob && !originalMediaItem?.filePath && !originalMediaItem?.proxyPath) continue;
+
+          const mediaItem = (!this.exportMode && isTauri() && originalMediaItem.proxyPath)
+            ? { ...originalMediaItem, filePath: originalMediaItem.proxyPath }
+            : originalMediaItem;
 
           let bitmap: ImageBitmap | null = null;
           let bitmapFromCache = false;
@@ -694,7 +698,27 @@ export class VideoEngine {
             } else {
               this.cacheStats.misses++;
 
-              if (shouldInterpolate && mediaItem.metadata?.frameRate) {
+              if (isTauri() && mediaItem.filePath && mediaItem.metadata?.codec?.toLowerCase().includes("prores")) {
+                try {
+                  const { invoke } = await import("@tauri-apps/api/core");
+                  const base64Data = await invoke<string>("generate_thumbnail", {
+                    path: mediaItem.filePath,
+                    time: clipInfo.sourceTime,
+                    width: width,
+                  });
+                  const img = new Image();
+                  img.src = base64Data;
+                  await new Promise<void>((resolve, reject) => {
+                    img.onload = () => resolve();
+                    img.onerror = () => reject(new Error("Failed to load native ProRes frame"));
+                  });
+                  bitmap = await createImageBitmap(img);
+                } catch (proresErr) {
+                  console.warn("[VideoEngine] Native ProRes decode failed, falling back:", proresErr);
+                }
+              }
+
+              if (!bitmap && shouldInterpolate && mediaItem.metadata?.frameRate) {
                 bitmap = await this.decodeInterpolatedFrame(
                   clip,
                   mediaItem,
@@ -735,6 +759,25 @@ export class VideoEngine {
                   width,
                   height,
                 );
+              }
+
+              if (!bitmap) {
+                const vidstabForDecode = getVidstabEngine();
+                const useStabilizedBlob = vidstabForDecode.hasStabilized(clip.id);
+                const decodeTime = useStabilizedBlob
+                  ? clipInfo.sourceTime - clip.inPoint
+                  : clipInfo.sourceTime;
+
+                if (!isTauri() && mediaItem.blob) {
+                  try {
+                    const { getFFmpegFallback } = await import("../media/ffmpeg-fallback");
+                    const ffmpeg = getFFmpegFallback();
+                    const frameBlob = await ffmpeg.extractFrame(mediaItem.blob, decodeTime);
+                    bitmap = await createImageBitmap(frameBlob);
+                  } catch (wasmErr) {
+                    console.warn("[VideoEngine] FFmpeg.wasm fallback decode failed:", wasmErr);
+                  }
+                }
               }
 
               if (bitmap) {
@@ -1927,12 +1970,36 @@ export class VideoEngine {
   }
 
   async decodeFrame(
-    mediaItem: MediaItem,
+    originalMediaItem: MediaItem,
     time: number,
   ): Promise<ImageBitmap | null> {
-    if (!mediaItem.blob && !mediaItem.filePath) {
-      console.warn(`No blob or filePath available for media item ${mediaItem.id}`);
+    if (!originalMediaItem.blob && !originalMediaItem.filePath && !originalMediaItem.proxyPath) {
+      console.warn(`No blob, filePath, or proxyPath available for media item ${originalMediaItem.id}`);
       return null;
+    }
+
+    const mediaItem = (!this.exportMode && isTauri() && originalMediaItem.proxyPath)
+      ? { ...originalMediaItem, filePath: originalMediaItem.proxyPath }
+      : originalMediaItem;
+
+    if (isTauri() && mediaItem.filePath && mediaItem.metadata?.codec?.toLowerCase().includes("prores")) {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const base64Data = await invoke<string>("generate_thumbnail", {
+          path: mediaItem.filePath,
+          time: time,
+          width: mediaItem.metadata.width || 960,
+        });
+        const img = new Image();
+        img.src = base64Data;
+        await new Promise<void>((resolve, reject) => {
+          img.onload = () => resolve();
+          img.onerror = () => reject(new Error("Failed to load native ProRes frame"));
+        });
+        return await createImageBitmap(img);
+      } catch (proresErr) {
+        console.warn("[VideoEngine] Native ProRes decode in decodeFrame failed, falling back:", proresErr);
+      }
     }
 
     // Special handling for static images - they don't need mediabunny
@@ -1972,7 +2039,17 @@ export class VideoEngine {
 
       const canDecode = await videoTrack.canDecode();
       if (!canDecode) {
-        console.warn(`Cannot decode video track for media ${mediaItem.id}`);
+        console.warn(`Cannot decode video track for media ${mediaItem.id}, trying WASM fallback`);
+        if (!isTauri() && mediaItem.blob) {
+          try {
+            const { getFFmpegFallback } = await import("../media/ffmpeg-fallback");
+            const ffmpeg = getFFmpegFallback();
+            const frameBlob = await ffmpeg.extractFrame(mediaItem.blob, time);
+            return await createImageBitmap(frameBlob);
+          } catch (wasmErr) {
+            console.warn("[VideoEngine] FFmpeg.wasm fallback decode in decodeFrame failed:", wasmErr);
+          }
+        }
         return null;
       }
 
@@ -2037,7 +2114,7 @@ export class VideoEngine {
   }
 
   async decodeFrameToCanvas(
-    mediaItem: MediaItem,
+    originalMediaItem: MediaItem,
     time: number,
     targetWidth?: number,
     targetHeight?: number,
@@ -2046,9 +2123,13 @@ export class VideoEngine {
 
     const { Input, ALL_FORMATS, CanvasSink } = this.mediabunny!;
 
-    if (!mediaItem.blob && !mediaItem.filePath) {
+    if (!originalMediaItem.blob && !originalMediaItem.filePath && !originalMediaItem.proxyPath) {
       return null;
     }
+
+    const mediaItem = (!this.exportMode && isTauri() && originalMediaItem.proxyPath)
+      ? { ...originalMediaItem, filePath: originalMediaItem.proxyPath }
+      : originalMediaItem;
 
     const input = new Input({
       source: createMediaBunnySource(this.mediabunny!, mediaItem),
@@ -2347,13 +2428,17 @@ export class VideoEngine {
    * @param frameRate - Frame rate for preloading (default: 30 fps)
    */
   async preloadFrames(
-    mediaItem: MediaItem,
+    originalMediaItem: MediaItem,
     centerTime: number,
     frameRate: number = 30,
   ): Promise<void> {
     this.ensureInitialized();
 
-    if (!mediaItem.blob && !mediaItem.filePath) return;
+    if (!originalMediaItem.blob && !originalMediaItem.filePath && !originalMediaItem.proxyPath) return;
+
+    const mediaItem = (!this.exportMode && isTauri() && originalMediaItem.proxyPath)
+      ? { ...originalMediaItem, filePath: originalMediaItem.proxyPath }
+      : originalMediaItem;
 
     const frameDuration = 1 / frameRate;
     const startTime = Math.max(

@@ -18,6 +18,7 @@ import {
   SOCIAL_MEDIA_CATEGORY_INFO,
   type SocialMediaCategory,
 } from "@openreel/core";
+import { useTranslation } from "../../hooks/use-translation";
 
 interface CategoryTabsProps {
   selectedCategory: SocialMediaCategory | "all";
@@ -59,6 +60,7 @@ export const CategoryTabs: React.FC<CategoryTabsProps> = ({
   onSelectCategory,
   categoryStats,
 }) => {
+  const { t } = useTranslation();
   const [expandedPlatform, setExpandedPlatform] = React.useState<string | null>(
     null,
   );
@@ -90,7 +92,7 @@ export const CategoryTabs: React.FC<CategoryTabsProps> = ({
           }`}
         >
           <LayoutGrid size={14} />
-          All
+          {t('welcome.templates_all')}
           <span
             className={`text-xs ${selectedCategory === "all" ? "text-black/60" : "text-text-muted"}`}
           >
@@ -121,7 +123,7 @@ export const CategoryTabs: React.FC<CategoryTabsProps> = ({
               }`}
             >
               <Icon size={14} />
-              {platform}
+              {platform === "General" ? t('welcome.templates_general') : platform}
               {count > 0 && (
                 <span
                   className={`text-xs ${isActive || isExpanded ? "text-black/60" : "text-text-muted"}`}
@@ -154,7 +156,7 @@ export const CategoryTabs: React.FC<CategoryTabsProps> = ({
                 }`}
               >
                 <Icon size={12} />
-                {info?.name || category}
+                {t('welcome.categories.' + category, info?.name || category)}
                 {count > 0 && (
                   <span
                     className={`text-[10px] ${selectedCategory === category ? "text-primary/70" : "text-text-muted"}`}

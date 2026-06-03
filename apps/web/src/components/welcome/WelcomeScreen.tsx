@@ -15,6 +15,7 @@ import { TemplateGallery } from "./TemplateGallery";
 import { RecentProjects } from "./RecentProjects";
 import { useRouter } from "../../hooks/use-router";
 import { useEditorPreload } from "../../hooks/useEditorPreload";
+import { useTranslation } from "../../hooks/use-translation";
 import { useAnalytics, AnalyticsEvents } from "../../hooks/useAnalytics";
 
 interface FormatOption {
@@ -136,6 +137,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ initialTab }) => {
   const createNewProject = useProjectStore((state) => state.createNewProject);
   const { navigate } = useRouter();
   const { track } = useAnalytics();
+  const { t, language } = useTranslation();
 
   const [viewMode, setViewMode] = useState<ViewMode>(initialTab ?? "home");
   const [hoveredFormat, setHoveredFormat] = useState<string | null>(null);
@@ -151,7 +153,9 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ initialTab }) => {
 
   const handleCreateProject = useCallback(
     async (option: FormatOption) => {
-      let uniqueName = `New ${option.label} Video`;
+      let uniqueName = language === "vi"
+        ? `Dự án ${t(`welcome.formats.${option.id}.label`)} Mới`
+        : `New ${option.label} Video`;
       let saves: any[] = [];
       try {
         await autoSaveManager.initialize();
@@ -159,8 +163,9 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ initialTab }) => {
         const existingNames = new Set(saves.map((s) => s.projectName.trim().toLowerCase()));
         
         let counter = 1;
+        const baseName = uniqueName;
         while (existingNames.has(uniqueName.toLowerCase())) {
-          uniqueName = `New ${option.label} Video (${counter})`;
+          uniqueName = `${baseName} (${counter})`;
           counter++;
         }
       } catch (err) {
@@ -173,7 +178,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ initialTab }) => {
       setActiveSaves(saves);
       setIsCreateDialogOpen(true);
     },
-    []
+    [t, language]
   );
 
   const handleConfirmCreate = useCallback(() => {
@@ -187,7 +192,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ initialTab }) => {
     );
 
     if (isDuplicate) {
-      setNameError("Tên dự án này đã được sử dụng.");
+      setNameError(t("welcome.error_duplicate_name"));
       return;
     }
 
@@ -213,7 +218,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ initialTab }) => {
     setNewProjectName(value);
     const trimmed = value.trim();
     if (!trimmed) {
-      setNameError("Tên dự án không được để trống.");
+      setNameError(t("welcome.error_empty_name"));
       return;
     }
 
@@ -222,11 +227,11 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ initialTab }) => {
     );
 
     if (isDuplicate) {
-      setNameError("Tên dự án này đã được sử dụng.");
+      setNameError(t("welcome.error_duplicate_name"));
     } else {
       setNameError(null);
     }
-  }, [activeSaves]);
+  }, [activeSaves, t]);
 
   const handleTemplateApplied = useCallback(() => {
     navigate("editor");
@@ -258,9 +263,9 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ initialTab }) => {
             onClick={() => setViewMode("home")}
           >
             <ArrowRight className="rotate-180" size={16} />
-            Back
+            {t("welcome.cancel")}
           </Button>
-          <h2 className="text-sm font-medium text-text-primary">Templates</h2>
+          <h2 className="text-sm font-medium text-text-primary">{t("welcome.templates")}</h2>
           <div className="w-16" />
         </header>
         <div className="flex-1 overflow-y-auto p-6">
@@ -280,10 +285,10 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ initialTab }) => {
             onClick={() => setViewMode("home")}
           >
             <ArrowRight className="rotate-180" size={16} />
-            Back
+            {t("welcome.cancel")}
           </Button>
           <h2 className="text-sm font-medium text-text-primary">
-            Recent Projects
+            {t("welcome.recent_projects")}
           </h2>
           <div className="w-16" />
         </header>
@@ -312,13 +317,10 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ initialTab }) => {
             </div>
 
             <h1 className="text-4xl sm:text-5xl font-bold text-text-primary tracking-tight mb-3">
-              From idea to export.
+              {t("welcome.title")}
             </h1>
             <p className="text-xl text-text-secondary mb-8">
-              In your browser.
-            </p>
-            <p className="text-base text-text-muted max-w-md">
-              Pick a format and start creating. You can change this anytime.
+              {t("welcome.subtitle")}
             </p>
           </div>
 
@@ -363,10 +365,10 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ initialTab }) => {
                     </div>
 
                     <h3 className="text-lg font-semibold text-text-primary mb-1">
-                      {option.label}
+                      {t(`welcome.formats.${option.id}.label`)}
                     </h3>
                     <p className="text-sm text-text-muted mb-3">
-                      {option.description}
+                      {t(`welcome.formats.${option.id}.desc`)}
                     </p>
                     <span className="text-xs font-mono text-text-muted/70 bg-background-tertiary px-2 py-1 rounded">
                       {option.dimensions}
@@ -381,7 +383,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ initialTab }) => {
                     transition-all duration-200
                   `}
                   >
-                    Start creating
+                    {t("welcome.start_from_scratch")}
                     <ArrowRight size={14} />
                   </div>
                 </button>
@@ -396,7 +398,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ initialTab }) => {
               className="rounded-xl"
             >
               <Layers size={16} />
-              Browse templates
+              {t("welcome.templates")}
             </Button>
             <Button
               variant="outline"
@@ -404,7 +406,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ initialTab }) => {
               className="rounded-xl"
             >
               <Clock size={16} />
-              Recent projects
+              {t("welcome.recent_projects")}
             </Button>
 
             <Button
@@ -413,7 +415,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ initialTab }) => {
               className="rounded-xl border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/10 hover:border-indigo-500/50"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-              Automation Queues
+              {t("welcome.automation_queues")}
             </Button>
           </div>
         </div>
@@ -434,10 +436,10 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ initialTab }) => {
             )}
             <div>
               <DialogTitle className="text-lg font-semibold text-text-primary">
-                Tạo dự án mới
+                {t("welcome.create_project")}
               </DialogTitle>
               <DialogDescription className="text-xs text-text-muted mt-0.5">
-                Nhập tên để khởi tạo dự án định dạng {selectedOption?.label} ({selectedOption?.dimensions})
+                {t("welcome.project_name")} ({selectedOption?.dimensions})
               </DialogDescription>
             </div>
           </DialogHeader>
@@ -445,14 +447,14 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ initialTab }) => {
           <div className="p-5 space-y-4">
             <div className="space-y-2">
               <Label htmlFor="project-name-input" className="text-xs font-medium text-text-secondary">
-                Tên dự án <span className="text-red-400">*</span>
+                {t("welcome.project_name")} <span className="text-red-400">*</span>
               </Label>
               <Input
                 id="project-name-input"
                 type="text"
                 value={newProjectName}
                 onChange={(e) => handleNameChange(e.target.value)}
-                placeholder="Tên dự án..."
+                placeholder={`${t("welcome.project_name")}...`}
                 className="bg-background-secondary border-border text-text-primary h-10 px-3 focus-visible:ring-1 focus-visible:ring-primary/50"
                 autoFocus
                 onKeyDown={(e) => {
@@ -468,7 +470,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ initialTab }) => {
                 </p>
               ) : (
                 <p className="text-[10px] text-text-muted">
-                  Tên này được sử dụng để quản lý dự án trong IndexedDB.
+                  {t("welcome.db_storage_hint")}
                 </p>
               )}
             </div>
@@ -480,14 +482,14 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ initialTab }) => {
               onClick={() => setIsCreateDialogOpen(false)}
               className="rounded-lg text-sm text-text-secondary hover:text-text-primary"
             >
-              Cancel
+              {t("welcome.cancel")}
             </Button>
             <Button
               onClick={handleConfirmCreate}
               disabled={!!nameError || !newProjectName.trim()}
               className="rounded-lg text-sm font-medium px-4 h-9"
             >
-              Create Project
+              {t("welcome.create_project")}
             </Button>
           </DialogFooter>
         </DialogContent>

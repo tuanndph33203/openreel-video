@@ -22,6 +22,7 @@ import { MultiCameraPanel } from "./inspector/MultiCameraPanel";
 import { VideoSummaryPanel } from "./panels/VideoSummaryPanel";
 import { useTtsAudioStore } from "../../stores/tts-store";
 import { toast } from "../../stores/notification-store";
+import { useTranslation } from "../../hooks/use-translation";
 
 type FeatureId = "templates" | "captions" | "tts" | "filters" | "music" | "multicam" | "insights" | null;
 
@@ -99,6 +100,7 @@ const FeatureSection: React.FC<FeatureSectionProps> = ({ title, icon: Icon, chil
 );
 
 export const AIGenTab: React.FC = () => {
+  const { t } = useTranslation();
   const [activeFeature, setActiveFeature] = useState<FeatureId>(null);
   const ttsHasUnsaved = useTtsAudioStore((s) => s.generatedAudio !== null && !s.isAudioSaved);
 
@@ -142,7 +144,7 @@ export const AIGenTab: React.FC = () => {
           className="flex items-center gap-2 px-4 py-3 text-text-secondary hover:text-text-primary transition-colors border-b border-border bg-background-secondary shrink-0"
         >
           <ChevronRight size={14} className="rotate-180" />
-          <span className="text-[11px] font-medium">Back to AI Tools</span>
+          <span className="text-[11px] font-medium">{t("ai_gen.back_btn")}</span>
         </button>
         <ScrollArea className="flex-1 w-full">
           <div className="p-4 w-full min-w-0 overflow-hidden">{renderActivePanel()}</div>
@@ -158,15 +160,15 @@ export const AIGenTab: React.FC = () => {
           <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 mb-3">
             <Wand2 size={24} className="text-primary" />
           </div>
-          <h2 className="text-sm font-semibold text-text-primary">AI-Powered Tools</h2>
-          <p className="text-[11px] text-text-muted mt-1">Automate your editing with intelligent features</p>
+          <h2 className="text-sm font-semibold text-text-primary">{t("ai_gen.title")}</h2>
+          <p className="text-[11px] text-text-muted mt-1">{t("ai_gen.subtitle")}</p>
         </div>
 
-        <FeatureSection title="Content Generation" icon={Wand2}>
+        <FeatureSection title={t("ai_gen.sections.generation")} icon={Wand2}>
           <FeatureCard
             icon={Mic}
-            title="Text to Speech"
-            description="Generate natural voiceovers from text"
+            title={t("ai_gen.features.tts.title")}
+            description={t("ai_gen.features.tts.desc")}
             iconColor="text-blue-400"
             iconBg="bg-blue-500/20"
             activeBorder="border-blue-500/50"
@@ -177,8 +179,8 @@ export const AIGenTab: React.FC = () => {
           />
           <FeatureCard
             icon={Subtitles}
-            title="Auto Captions"
-            description="Automatically generate subtitles from audio"
+            title={t("ai_gen.features.captions.title")}
+            description={t("ai_gen.features.captions.desc")}
             iconColor="text-purple-400"
             iconBg="bg-purple-500/20"
             activeBorder="border-purple-500/50"
@@ -189,8 +191,8 @@ export const AIGenTab: React.FC = () => {
           />
           <FeatureCard
             icon={Sparkles}
-            title="AI Video Insights (Mimo)"
-            description="Summarize video, split chapters, generate SEO tags"
+            title={t("ai_gen.features.insights.title")}
+            description={t("ai_gen.features.insights.desc")}
             iconColor="text-yellow-400"
             iconBg="bg-yellow-500/20"
             activeBorder="border-yellow-500/50"
@@ -201,11 +203,11 @@ export const AIGenTab: React.FC = () => {
           />
         </FeatureSection>
 
-        <FeatureSection title="Templates & Presets" icon={FileStack}>
+        <FeatureSection title={t("ai_gen.sections.templates")} icon={FileStack}>
           <FeatureCard
             icon={Layers}
-            title="Project Templates"
-            description="Start with pre-built project structures"
+            title={t("ai_gen.features.templates.title")}
+            description={t("ai_gen.features.templates.desc")}
             iconColor="text-green-400"
             iconBg="bg-green-500/20"
             activeBorder="border-green-500/50"
@@ -216,8 +218,8 @@ export const AIGenTab: React.FC = () => {
           />
           <FeatureCard
             icon={Palette}
-            title="Filter Presets"
-            description="Apply cinematic color grades instantly"
+            title={t("ai_gen.features.filters.title")}
+            description={t("ai_gen.features.filters.desc")}
             iconColor="text-orange-400"
             iconBg="bg-orange-500/20"
             activeBorder="border-orange-500/50"
@@ -228,11 +230,11 @@ export const AIGenTab: React.FC = () => {
           />
         </FeatureSection>
 
-        <FeatureSection title="Media Library" icon={Volume2}>
+        <FeatureSection title={t("ai_gen.sections.library")} icon={Volume2}>
           <FeatureCard
             icon={Music}
-            title="Music & Sound Effects"
-            description="Browse royalty-free audio for your projects"
+            title={t("ai_gen.features.music.title")}
+            description={t("ai_gen.features.music.desc")}
             iconColor="text-pink-400"
             iconBg="bg-pink-500/20"
             activeBorder="border-pink-500/50"
@@ -243,11 +245,11 @@ export const AIGenTab: React.FC = () => {
           />
         </FeatureSection>
 
-        <FeatureSection title="Pro Tools" icon={Video}>
+        <FeatureSection title={t("ai_gen.sections.pro")} icon={Video}>
           <FeatureCard
             icon={Video}
-            title="Multi-Camera Editing"
-            description="Sync and switch between multiple angles"
+            title={t("ai_gen.features.multicam.title")}
+            description={t("ai_gen.features.multicam.desc")}
             iconColor="text-cyan-400"
             iconBg="bg-cyan-500/20"
             activeBorder="border-cyan-500/50"
@@ -260,7 +262,7 @@ export const AIGenTab: React.FC = () => {
 
         <div className="pt-2 border-t border-border">
           <p className="text-[9px] text-text-muted text-center">
-            More AI features coming soon — image generation, auto-edit, and more
+            {t("ai_gen.coming_soon")}
           </p>
         </div>
       </div>

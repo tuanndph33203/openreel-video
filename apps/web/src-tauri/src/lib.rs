@@ -145,6 +145,30 @@ fn extract_audio_as_wav(path: String, audio_track_index: u32) -> Result<Vec<u8>,
 }
 
 #[tauri::command]
+fn generate_proxy(input_path: String, output_path: String) -> Result<(), String> {
+  let output = Command::new("ffmpeg")
+    .args(&[
+      "-i", &input_path,
+      "-vf", "scale=-2:360",
+      "-c:v", "libx264",
+      "-crf", "28",
+      "-preset", "veryfast",
+      "-c:a", "aac",
+      "-b:a", "128k",
+      "-y",
+      &output_path,
+    ])
+    .output()
+    .map_err(|e| format!("Failed to execute ffmpeg for proxy generation: {}", e))?;
+
+  if output.status.success() {
+    Ok(())
+  } else {
+    Err(String::from_utf8_lossy(&output.stderr).into_owned())
+  }
+}
+
+#[tauri::command]
 fn write_export_chunk(path: String, chunk: Vec<u8>, position: u64) -> Result<(), String> {
   let mut file = OpenOptions::new()
     .create(true)
@@ -234,7 +258,8 @@ pub fn run() {
       select_open_file,
       select_save_file,
       extract_audio_as_wav,
-      read_file_chunk
+      read_file_chunk,
+      generate_proxy
     ])
     .setup(|app| {
       if cfg!(debug_assertions) {

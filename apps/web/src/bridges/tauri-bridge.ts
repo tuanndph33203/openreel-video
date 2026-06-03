@@ -183,3 +183,18 @@ export async function tauriImportMedia(filePath: string, fileName: string, fileS
     waveformData,
   };
 }
+
+/**
+ * Triggers proxy video generation for high resolution video.
+ */
+export async function tauriGenerateProxy(filePath: string, proxyPath: string): Promise<void> {
+  if (!isTauri()) return;
+  try {
+    await invokeTauri("generate_proxy", { inputPath: filePath, outputPath: proxyPath });
+    console.log(`[tauriGenerateProxy] Successfully generated proxy at ${proxyPath}`);
+  } catch (err) {
+    console.error(`[tauriGenerateProxy] Failed to generate proxy:`, err);
+    throw err;
+  }
+}
+

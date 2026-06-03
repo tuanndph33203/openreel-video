@@ -10,6 +10,7 @@ import {
 } from "@openreel/ui";
 import { Input } from "@openreel/ui";
 import { Button } from "@openreel/ui";
+import { useTranslation } from "../../../hooks/use-translation";
 
 interface MasterPasswordDialogProps {
   isOpen: boolean;
@@ -24,6 +25,7 @@ export const MasterPasswordDialog: React.FC<MasterPasswordDialogProps> = ({
   mode,
   onSubmit,
 }) => {
+  const { t } = useTranslation();
   const [password, setPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -53,22 +55,22 @@ export const MasterPasswordDialog: React.FC<MasterPasswordDialogProps> = ({
 
     if (mode === "setup") {
       if (password.length < 8) {
-        setError("Password must be at least 8 characters");
+        setError(t("api_keys.dialog.err_min_length"));
         return;
       }
       if (password !== confirmPassword) {
-        setError("Passwords do not match");
+        setError(t("api_keys.dialog.err_mismatch"));
         return;
       }
     }
 
     if (mode === "change") {
       if (newPassword.length < 8) {
-        setError("New password must be at least 8 characters");
+        setError(t("api_keys.dialog.err_new_min_length"));
         return;
       }
       if (newPassword !== confirmPassword) {
-        setError("New passwords do not match");
+        setError(t("api_keys.dialog.err_new_mismatch"));
         return;
       }
     }
@@ -84,27 +86,27 @@ export const MasterPasswordDialog: React.FC<MasterPasswordDialogProps> = ({
       } else {
         setError(
           mode === "unlock"
-            ? "Incorrect password"
-            : "Operation failed. Check your current password.",
+            ? t("api_keys.dialog.err_incorrect")
+            : t("api_keys.dialog.err_failed"),
         );
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "An error occurred");
+      setError(err instanceof Error ? err.message : t("api_keys.dialog.err_unknown"));
     } finally {
       setLoading(false);
     }
   }, [mode, password, newPassword, confirmPassword, onSubmit, resetForm]);
 
   const titles = {
-    setup: "Set Master Password",
-    unlock: "Unlock Settings",
-    change: "Change Master Password",
+    setup: t("api_keys.dialog.title_setup"),
+    unlock: t("api_keys.dialog.title_unlock"),
+    change: t("api_keys.dialog.title_change"),
   };
 
   const descriptions = {
-    setup: "Create a master password to encrypt your API keys. This password is never stored — only a verification hash is kept.",
-    unlock: "Enter your master password to access encrypted API keys.",
-    change: "Change your master password. All stored keys will be re-encrypted.",
+    setup: t("api_keys.dialog.desc_setup"),
+    unlock: t("api_keys.dialog.desc_unlock"),
+    change: t("api_keys.dialog.desc_change"),
   };
 
   return (
@@ -122,14 +124,14 @@ export const MasterPasswordDialog: React.FC<MasterPasswordDialogProps> = ({
           {mode === "change" && (
             <div className="space-y-2">
               <label className="text-sm font-medium text-text-secondary">
-                Current Password
+                {t("api_keys.dialog.current_password")}
               </label>
               <div className="relative">
                 <Input
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter current password"
+                  placeholder={t("api_keys.dialog.placeholder_current")}
                   autoFocus
                   className="pr-10"
                 />
@@ -147,7 +149,7 @@ export const MasterPasswordDialog: React.FC<MasterPasswordDialogProps> = ({
           {(mode === "setup" || mode === "unlock") && (
             <div className="space-y-2">
               <label className="text-sm font-medium text-text-secondary">
-                {mode === "setup" ? "Password" : "Master Password"}
+                {mode === "setup" ? t("api_keys.dialog.password") : t("api_keys.dialog.master_password")}
               </label>
               <div className="relative">
                 <Input
@@ -156,8 +158,8 @@ export const MasterPasswordDialog: React.FC<MasterPasswordDialogProps> = ({
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder={
                     mode === "setup"
-                      ? "Min. 8 characters"
-                      : "Enter master password"
+                      ? t("api_keys.dialog.placeholder_min_chars")
+                      : t("api_keys.dialog.placeholder_enter_master")
                   }
                   autoFocus
                   className="pr-10"
@@ -177,7 +179,7 @@ export const MasterPasswordDialog: React.FC<MasterPasswordDialogProps> = ({
             <>
               <div className="space-y-2">
                 <label className="text-sm font-medium text-text-secondary">
-                  {mode === "change" ? "New Password" : "Confirm Password"}
+                  {mode === "change" ? t("api_keys.dialog.new_password") : t("api_keys.dialog.confirm_password")}
                 </label>
                 <div className="relative">
                   <Input
@@ -190,8 +192,8 @@ export const MasterPasswordDialog: React.FC<MasterPasswordDialogProps> = ({
                     }
                     placeholder={
                       mode === "change"
-                        ? "Min. 8 characters"
-                        : "Repeat password"
+                        ? t("api_keys.dialog.placeholder_min_chars")
+                        : t("api_keys.dialog.placeholder_repeat")
                     }
                     className="pr-10"
                   />
@@ -208,13 +210,13 @@ export const MasterPasswordDialog: React.FC<MasterPasswordDialogProps> = ({
               {mode === "change" && (
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-text-secondary">
-                    Confirm New Password
+                    {t("api_keys.dialog.confirm_new_password")}
                   </label>
                   <Input
                     type={showNewPassword ? "text" : "password"}
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="Repeat new password"
+                    placeholder={t("api_keys.dialog.placeholder_repeat_new")}
                   />
                 </div>
               )}
@@ -232,9 +234,7 @@ export const MasterPasswordDialog: React.FC<MasterPasswordDialogProps> = ({
             <div className="flex items-start gap-2 text-xs text-text-muted bg-background-secondary px-3 py-2 rounded-lg">
               <ShieldCheck size={14} className="mt-0.5 shrink-0 text-primary" />
               <span>
-                Your password is used to derive an encryption key via PBKDF2
-                (100k iterations). API keys are encrypted with AES-256-GCM.
-                If you forget this password, stored keys cannot be recovered.
+                {t("api_keys.dialog.security_notice")}
               </span>
             </div>
           )}
@@ -246,16 +246,16 @@ export const MasterPasswordDialog: React.FC<MasterPasswordDialogProps> = ({
               onClick={handleClose}
               disabled={loading}
             >
-              Cancel
+              {t("api_keys.dialog.btn_cancel")}
             </Button>
             <Button type="submit" disabled={loading}>
               {loading
-                ? "Processing..."
+                ? t("api_keys.dialog.btn_processing")
                 : mode === "setup"
-                  ? "Set Password"
+                  ? t("api_keys.dialog.btn_set_password")
                   : mode === "unlock"
-                    ? "Unlock"
-                    : "Change Password"}
+                    ? t("api_keys.dialog.btn_unlock")
+                    : t("api_keys.dialog.btn_change_password")}
             </Button>
           </DialogFooter>
         </form>

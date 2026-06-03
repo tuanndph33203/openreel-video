@@ -63,6 +63,8 @@ export interface MediaItem {
   readonly type: "video" | "audio" | "image";
   readonly fileHandle: FileSystemFileHandle | null;
   readonly filePath?: string;
+  readonly proxyPath?: string;
+  readonly hasProxy?: boolean;
   readonly blob: Blob | null;
   readonly metadata: MediaMetadata;
   readonly thumbnailUrl: string | null;

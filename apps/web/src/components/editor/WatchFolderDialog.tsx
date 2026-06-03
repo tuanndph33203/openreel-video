@@ -12,6 +12,7 @@ import { useProjectStore } from "../../stores/project-store";
 import { toast } from "../../stores/notification-store";
 import { saveDirectoryHandle } from "../../services/media-storage";
 import { AutomationManager } from "@openreel/core";
+import { useTranslation } from "../../hooks/use-translation";
 
 interface WatchFolderDialogProps {
   open: boolean;
@@ -24,6 +25,7 @@ export const WatchFolderDialog: React.FC<WatchFolderDialogProps> = ({
   onOpenChange,
   onConfirm,
 }) => {
+  const { t } = useTranslation();
   const project = useProjectStore((state) => state.project);
   const updateSettings = useProjectStore((state) => state.updateSettings);
   
@@ -61,7 +63,7 @@ export const WatchFolderDialog: React.FC<WatchFolderDialogProps> = ({
       onConfirm(dirHandle);
       onOpenChange(false);
       const queuesCount = AutomationManager.getInstance().getStatus().watchedProjects.length;
-      toast.success("Watch folder set!", `Folder "${dirHandle.name}" will be monitored. Active Queues: ${queuesCount}`);
+      toast.success(t("watch_folder.toasts.set_success"), t("watch_folder.toasts.set_success_desc", { name: dirHandle.name, count: queuesCount }));
     } catch (e) {
       console.error(e);
       // User cancelled
@@ -82,11 +84,11 @@ export const WatchFolderDialog: React.FC<WatchFolderDialogProps> = ({
         } catch (err) {
           console.warn("Failed to force save watch folder stop", err);
         }
-        toast.success("Watch folder stopped", "Folder monitoring has been deactivated.");
+        toast.success(t("watch_folder.toasts.stop_success"), t("watch_folder.toasts.stop_success_desc"));
         onOpenChange(false);
       } catch (err) {
         console.error("Failed to stop watch folder", err);
-        toast.error("Error", "Failed to stop watching folder.");
+        toast.error(t("watch_folder.toasts.stop_error"), t("watch_folder.toasts.stop_error_desc"));
       }
     }
   };
@@ -97,10 +99,10 @@ export const WatchFolderDialog: React.FC<WatchFolderDialogProps> = ({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-primary">
             <Zap size={18} />
-            Watch Folder Setup
+            {t("watch_folder.title")}
           </DialogTitle>
           <DialogDescription className="text-text-secondary text-xs">
-            Selecting a folder will automatically enable Auto‑Caption and Text‑to‑Speech for every new video placed here. All existing timeline edits (effects, filters, texts, etc.) are preserved.
+            {t("watch_folder.desc")}
           </DialogDescription>
         </DialogHeader>
         
@@ -109,19 +111,19 @@ export const WatchFolderDialog: React.FC<WatchFolderDialogProps> = ({
             <div className="flex items-start gap-2 p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-lg">
               <Zap size={16} className="text-indigo-400 mt-0.5 shrink-0" />
               <div className="text-xs text-text-primary">
-                <span className="font-semibold text-indigo-400">Currently Watching:</span>
+                <span className="font-semibold text-indigo-400">{t("watch_folder.currently_watching")}</span>
                 <p className="text-text-secondary mt-1 font-mono break-all">{project.settings.automationConfig.watchFolderName}</p>
               </div>
             </div>
           )}
 
-          <div className="text-sm font-medium">Template Analysis:</div>
+          <div className="text-sm font-medium">{t("watch_folder.template_analysis")}</div>
           
           <div className="flex items-start gap-2 p-3 bg-primary/10 border border-primary/20 rounded-lg">
             <Zap size={16} className="text-primary mt-0.5 shrink-0" />
             <div className="text-xs text-text-primary">
-              <span className="font-semibold">All timeline edits are preserved.</span>
-              <p className="text-text-muted mt-1">Filters, blur effects, manual texts, and transformations applied to the video will be automatically applied to the new video.</p>
+              <span className="font-semibold">{t("watch_folder.edits_preserved")}</span>
+              <p className="text-text-muted mt-1">{t("watch_folder.edits_preserved_desc")}</p>
             </div>
           </div>
           
@@ -132,7 +134,7 @@ export const WatchFolderDialog: React.FC<WatchFolderDialogProps> = ({
           <div className="flex items-start gap-2 p-2 bg-amber-500/10 border border-amber-500/30 rounded-lg">
             <AlertCircle size={14} className="text-amber-400 mt-0.5 shrink-0" />
             <span className="text-[10px] text-amber-300">
-              AI generation requires API keys configured in your settings. Cost is determined by your provider.
+              {t("watch_folder.api_key_notice")}
             </span>
           </div>
         </div>
@@ -143,7 +145,7 @@ export const WatchFolderDialog: React.FC<WatchFolderDialogProps> = ({
               onClick={handleStopWatching}
               className="px-3 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs font-semibold rounded-lg transition-colors border border-red-500/20 mr-auto"
             >
-              Stop Watching
+              {t("watch_folder.btn_stop")}
             </button>
           ) : null}
           <div className="flex items-center gap-2 ml-auto">
@@ -151,7 +153,7 @@ export const WatchFolderDialog: React.FC<WatchFolderDialogProps> = ({
               onClick={() => onOpenChange(false)}
               className="px-4 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
             >
-              Cancel
+              {t("watch_folder.btn_cancel")}
             </button>
             <button
               onClick={handleSelectFolder}
@@ -159,7 +161,7 @@ export const WatchFolderDialog: React.FC<WatchFolderDialogProps> = ({
               className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-50"
             >
               {isSelecting ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
-              {project?.settings.automationConfig?.watchFolderName ? "Change Folder" : "Select Folder"}
+              {project?.settings.automationConfig?.watchFolderName ? t("watch_folder.btn_change") : t("watch_folder.btn_select")}
             </button>
           </div>
         </DialogFooter>

@@ -13,6 +13,7 @@ import {
   Hash,
   Music,
 } from "lucide-react";
+import { useTranslation } from "../../hooks/use-translation";
 import {
   Dialog,
   DialogContent,
@@ -65,6 +66,7 @@ export const TemplatePreviewModal: React.FC<TemplatePreviewModalProps> = ({
   onClose,
   onApply,
 }) => {
+  const { t } = useTranslation();
   const getTemplateEngine = useEngineStore((state) => state.getTemplateEngine);
   const getTitleEngine = useEngineStore((state) => state.getTitleEngine);
   const loadProject = useProjectStore((state) => state.loadProject);
@@ -181,7 +183,7 @@ export const TemplatePreviewModal: React.FC<TemplatePreviewModalProps> = ({
 
       onApply();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to apply template");
+      setError(err instanceof Error ? err.message : t('template_preview.err_apply_failed'));
     } finally {
       setIsApplying(false);
     }
@@ -217,7 +219,7 @@ export const TemplatePreviewModal: React.FC<TemplatePreviewModalProps> = ({
               </div>
               <div className="flex items-center gap-1.5 text-xs text-text-muted">
                 <Layers size={12} />
-                <span>{template.placeholders.length} editable fields</span>
+                <span>{t('template_preview.editable_fields', { count: template.placeholders.length })}</span>
               </div>
             </div>
           </DialogDescription>
@@ -249,7 +251,7 @@ export const TemplatePreviewModal: React.FC<TemplatePreviewModalProps> = ({
               {template.scenes && template.scenes.length > 0 && (
                 <div className="space-y-2">
                   <h3 className="text-xs font-medium text-text-muted uppercase tracking-wide">
-                    Scenes
+                    {t('template_preview.scenes')}
                   </h3>
                   <div className="flex flex-wrap gap-2">
                     {template.scenes.map((scene) => (
@@ -276,7 +278,7 @@ export const TemplatePreviewModal: React.FC<TemplatePreviewModalProps> = ({
 
             <div className="space-y-4">
               <h3 className="text-sm font-medium text-text-primary">
-                Customize Template
+                {t('template_preview.customize')}
               </h3>
 
               {groupedPlaceholders.main.length > 0 && (
@@ -305,7 +307,7 @@ export const TemplatePreviewModal: React.FC<TemplatePreviewModalProps> = ({
                       size={12}
                       className={`transition-transform ${showAdvanced ? "rotate-90" : ""}`}
                     />
-                    Advanced Options ({groupedPlaceholders.advanced.length})
+                    {t('template_preview.advanced_options', { count: groupedPlaceholders.advanced.length })}
                   </CollapsibleTrigger>
                   <CollapsibleContent className="mt-4 space-y-4 pl-4 border-l border-border">
                     {groupedPlaceholders.advanced.map((placeholder) => (
@@ -337,7 +339,7 @@ export const TemplatePreviewModal: React.FC<TemplatePreviewModalProps> = ({
 
         <div className="p-5 border-t border-border flex items-center justify-end gap-3 shrink-0">
           <Button variant="ghost" onClick={onClose}>
-            Cancel
+            {t('template_preview.btn_cancel')}
           </Button>
           <Button
             onClick={handleApply}
@@ -347,11 +349,11 @@ export const TemplatePreviewModal: React.FC<TemplatePreviewModalProps> = ({
             {isApplying ? (
               <>
                 <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
-                Applying...
+                {t('template_preview.btn_applying')}
               </>
             ) : (
               <>
-                Use Template
+                {t('template_preview.btn_apply')}
                 <ChevronRight size={16} />
               </>
             )}
@@ -373,6 +375,7 @@ const PlaceholderInput: React.FC<PlaceholderInputProps> = ({
   value,
   onChange,
 }) => {
+  const { t } = useTranslation();
   const Icon = PLACEHOLDER_ICONS[placeholder.type] || Type;
   const displayValue = value ?? placeholder.defaultValue ?? "";
 
@@ -445,7 +448,7 @@ const PlaceholderInput: React.FC<PlaceholderInputProps> = ({
               onCheckedChange={(checked) => onChange(checked)}
             />
             <Label className="text-sm text-text-secondary cursor-pointer">
-              {placeholder.description || "Enabled"}
+              {placeholder.description || t('template_preview.label_enabled')}
             </Label>
           </div>
         );

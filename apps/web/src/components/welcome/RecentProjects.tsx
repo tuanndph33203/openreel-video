@@ -7,6 +7,7 @@ import {
 } from "../../services/auto-save";
 import { useProjectStore } from "../../stores/project-store";
 import { useAnalytics, AnalyticsEvents } from "../../hooks/useAnalytics";
+import { useTranslation } from "../../hooks/use-translation";
 
 interface RecentProject {
   id: string;
@@ -27,6 +28,7 @@ export const RecentProjects: React.FC<RecentProjectsProps> = ({
   const [loadingProjectId, setLoadingProjectId] = useState<string | null>(null);
   const { project, createNewProject, recoverFromAutoSave } = useProjectStore();
   const { track } = useAnalytics();
+  const { t } = useTranslation();
 
   useEffect(() => {
     async function loadProjects() {
@@ -107,7 +109,7 @@ export const RecentProjects: React.FC<RecentProjectsProps> = ({
       (p) => p.id !== projectId && p.name.trim().toLowerCase() === trimmed.toLowerCase()
     );
     if (isDuplicate) {
-      alert("Tên dự án đã tồn tại. Vui lòng chọn tên khác.");
+      alert(t("recent_projects.rename_duplicate_error"));
       return;
     }
 
@@ -133,7 +135,7 @@ export const RecentProjects: React.FC<RecentProjectsProps> = ({
   const handleRemoveProject = useCallback(
     async (projectId: string, event: React.MouseEvent) => {
       event.stopPropagation();
-      const confirmDelete = window.confirm("Bạn có chắc chắn muốn xóa dự án này không?");
+      const confirmDelete = window.confirm(t("recent_projects.delete_confirm"));
       if (!confirmDelete) return;
 
       try {
@@ -156,10 +158,10 @@ export const RecentProjects: React.FC<RecentProjectsProps> = ({
       (now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24),
     );
 
-    if (diffDays === 0) return "Today";
-    if (diffDays === 1) return "Yesterday";
-    if (diffDays < 7) return `${diffDays} days ago`;
-    if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
+    if (diffDays === 0) return t("recent_projects.date.today");
+    if (diffDays === 1) return t("recent_projects.date.yesterday");
+    if (diffDays < 7) return t("recent_projects.date.days_ago", { count: diffDays });
+    if (diffDays < 30) return t("recent_projects.date.weeks_ago", { count: Math.floor(diffDays / 7) });
 
     return date.toLocaleDateString();
   };
@@ -169,7 +171,7 @@ export const RecentProjects: React.FC<RecentProjectsProps> = ({
       <div className="flex flex-col items-center justify-center py-20">
         <div className="w-8 h-8 border-2 border-primary/30 border-t-primary rounded-full animate-spin mb-4" />
         <p className="text-sm text-text-secondary">
-          Loading recent projects...
+          {t("recent_projects.loading")}
         </p>
       </div>
     );
@@ -182,11 +184,10 @@ export const RecentProjects: React.FC<RecentProjectsProps> = ({
           <Clock size={24} className="text-text-muted" />
         </div>
         <h3 className="text-base font-medium text-text-primary mb-2">
-          No Recent Projects
+          {t("recent_projects.no_projects")}
         </h3>
         <p className="text-sm text-text-muted text-center max-w-md">
-          Your recently opened projects will appear here. Start a new project or
-          use a template to get started.
+          {t("recent_projects.no_projects_desc")}
         </p>
       </div>
     );
@@ -196,7 +197,7 @@ export const RecentProjects: React.FC<RecentProjectsProps> = ({
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-medium text-text-primary">
-          Recent Projects ({recentProjects.length})
+          {t("recent_projects.title_count", { count: recentProjects.length })}
         </h3>
       </div>
 
@@ -250,14 +251,14 @@ export const RecentProjects: React.FC<RecentProjectsProps> = ({
                 <button
                   onClick={(e) => handleStartRename(project, e)}
                   className="p-1.5 text-text-muted hover:text-primary rounded-lg bg-background/80 hover:bg-primary/10 backdrop-blur-sm"
-                  title="Rename project"
+                  title={t("recent_projects.rename_tooltip")}
                 >
                   <Pencil size={14} />
                 </button>
                 <button
                   onClick={(e) => handleRemoveProject(project.id, e)}
                   className="p-1.5 text-text-muted hover:text-red-400 rounded-lg bg-background/80 hover:bg-red-500/10 backdrop-blur-sm"
-                  title="Delete project"
+                  title={t("recent_projects.delete_tooltip")}
                 >
                   <Trash2 size={14} />
                 </button>
@@ -268,7 +269,7 @@ export const RecentProjects: React.FC<RecentProjectsProps> = ({
       </div>
 
       <p className="text-xs text-text-muted text-center">
-        Recent projects are stored locally in your browser
+        {t("recent_projects.footer_hint")}
       </p>
     </div>
   );
