@@ -424,9 +424,9 @@ export class GraphicsEngine {
     backdropBg?: OffscreenCanvas | HTMLCanvasElement,
   ): Promise<GraphicRenderResult> {
     const canvas =
-      typeof OffscreenCanvas !== "undefined"
-        ? new OffscreenCanvas(width, height)
-        : document.createElement("canvas");
+      typeof document !== "undefined"
+        ? document.createElement("canvas")
+        : new OffscreenCanvas(width, height);
 
     if (canvas instanceof HTMLCanvasElement) {
       canvas.width = width;
@@ -533,7 +533,9 @@ export class GraphicsEngine {
       shapeType === "rectangle" &&
       style.backdropBlur &&
       style.backdropBlur > 0 &&
-      backdropBg
+      backdropBg &&
+      backdropBg.width > 0 &&
+      backdropBg.height > 0
     ) {
       ctx.save();
       ctx.clip();

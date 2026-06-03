@@ -206,6 +206,480 @@ const DEFAULT_TEXT_STYLE: TextStyle = {
   shadowBlur: 0,
 };
 
+interface TextPreset {
+  id: string;
+  name: string;
+  style: Partial<TextStyle>;
+  previewStyle: React.CSSProperties;
+}
+
+const TEXT_PRESETS: TextPreset[] = [
+  {
+    id: "none",
+    name: "Mặc định",
+    style: {
+      color: "#ffffff",
+      backgroundColor: "transparent",
+      strokeColor: "#000000",
+      strokeWidth: 0,
+      shadowColor: "#000000",
+      shadowOffsetX: 0,
+      shadowOffsetY: 0,
+      shadowBlur: 0,
+    },
+    previewStyle: {
+      color: "#ffffff",
+    },
+  },
+  {
+    id: "white-black-stroke",
+    name: "Trắng viền đen",
+    style: {
+      color: "#ffffff",
+      strokeColor: "#000000",
+      strokeWidth: 4,
+      shadowColor: "transparent",
+      shadowOffsetX: 0,
+      shadowOffsetY: 0,
+      shadowBlur: 0,
+      backgroundColor: "transparent",
+    },
+    previewStyle: {
+      color: "#ffffff",
+      WebkitTextStroke: "1.2px #000000",
+      fontWeight: "bold",
+    },
+  },
+  {
+    id: "white-black-stroke-shadow",
+    name: "Trắng viền đen bóng đổ",
+    style: {
+      color: "#ffffff",
+      strokeColor: "#000000",
+      strokeWidth: 3,
+      shadowColor: "#000000",
+      shadowOffsetX: 3,
+      shadowOffsetY: 3,
+      shadowBlur: 2,
+      backgroundColor: "transparent",
+    },
+    previewStyle: {
+      color: "#ffffff",
+      WebkitTextStroke: "1px #000000",
+      textShadow: "1.5px 1.5px 1px #000000",
+      fontWeight: "bold",
+    },
+  },
+  {
+    id: "white-soft-shadow",
+    name: "Trắng bóng đổ mềm",
+    style: {
+      color: "#ffffff",
+      strokeColor: "transparent",
+      strokeWidth: 0,
+      shadowColor: "rgba(0, 0, 0, 0.6)",
+      shadowOffsetX: 2,
+      shadowOffsetY: 2,
+      shadowBlur: 4,
+      backgroundColor: "transparent",
+    },
+    previewStyle: {
+      color: "#ffffff",
+      textShadow: "1.5px 1.5px 2px rgba(0, 0, 0, 0.7)",
+      fontWeight: "bold",
+    },
+  },
+  {
+    id: "white-glow",
+    name: "Trắng phát sáng",
+    style: {
+      color: "#ffffff",
+      strokeColor: "transparent",
+      strokeWidth: 0,
+      shadowColor: "#000000",
+      shadowOffsetX: 0,
+      shadowOffsetY: 0,
+      shadowBlur: 8,
+      backgroundColor: "transparent",
+    },
+    previewStyle: {
+      color: "#ffffff",
+      textShadow: "0 0 4px #000000",
+      fontWeight: "bold",
+    },
+  },
+  {
+    id: "yellow-black-stroke",
+    name: "Vàng viền đen",
+    style: {
+      color: "#ffeb3b",
+      strokeColor: "#000000",
+      strokeWidth: 4,
+      shadowColor: "transparent",
+      shadowOffsetX: 0,
+      shadowOffsetY: 0,
+      shadowBlur: 0,
+      backgroundColor: "transparent",
+    },
+    previewStyle: {
+      color: "#ffeb3b",
+      WebkitTextStroke: "1.2px #000000",
+      fontWeight: "bold",
+    },
+  },
+  {
+    id: "red-white-stroke",
+    name: "Đỏ viền trắng bóng đổ",
+    style: {
+      color: "#f44336",
+      strokeColor: "#ffffff",
+      strokeWidth: 3,
+      shadowColor: "#000000",
+      shadowOffsetX: 2,
+      shadowOffsetY: 2,
+      shadowBlur: 2,
+      backgroundColor: "transparent",
+    },
+    previewStyle: {
+      color: "#f44336",
+      WebkitTextStroke: "1px #ffffff",
+      textShadow: "1.5px 1.5px 1px #000000",
+      fontWeight: "bold",
+    },
+  },
+  {
+    id: "orange-white-stroke",
+    name: "Cam viền trắng bóng đổ",
+    style: {
+      color: "#ff9800",
+      strokeColor: "#ffffff",
+      strokeWidth: 3,
+      shadowColor: "#000000",
+      shadowOffsetX: 2,
+      shadowOffsetY: 2,
+      shadowBlur: 2,
+      backgroundColor: "transparent",
+    },
+    previewStyle: {
+      color: "#ff9800",
+      WebkitTextStroke: "1px #ffffff",
+      textShadow: "1.5px 1.5px 1px #000000",
+      fontWeight: "bold",
+    },
+  },
+  {
+    id: "blue-white-stroke",
+    name: "Xanh viền trắng bóng đổ",
+    style: {
+      color: "#2196f3",
+      strokeColor: "#ffffff",
+      strokeWidth: 3,
+      shadowColor: "#000000",
+      shadowOffsetX: 2,
+      shadowOffsetY: 2,
+      shadowBlur: 2,
+      backgroundColor: "transparent",
+    },
+    previewStyle: {
+      color: "#2196f3",
+      WebkitTextStroke: "1px #ffffff",
+      textShadow: "1.5px 1.5px 1px #000000",
+      fontWeight: "bold",
+    },
+  },
+  {
+    id: "green-white-stroke",
+    name: "Lá viền trắng bóng đổ",
+    style: {
+      color: "#4caf50",
+      strokeColor: "#ffffff",
+      strokeWidth: 3,
+      shadowColor: "#000000",
+      shadowOffsetX: 2,
+      shadowOffsetY: 2,
+      shadowBlur: 2,
+      backgroundColor: "transparent",
+    },
+    previewStyle: {
+      color: "#4caf50",
+      WebkitTextStroke: "1px #ffffff",
+      textShadow: "1.5px 1.5px 1px #000000",
+      fontWeight: "bold",
+    },
+  },
+  {
+    id: "grey-white-stroke",
+    name: "Xám viền trắng",
+    style: {
+      color: "#2c2c2c",
+      strokeColor: "#ffffff",
+      strokeWidth: 2,
+      shadowColor: "transparent",
+      shadowOffsetX: 0,
+      shadowOffsetY: 0,
+      shadowBlur: 0,
+      backgroundColor: "transparent",
+    },
+    previewStyle: {
+      color: "#2c2c2c",
+      WebkitTextStroke: "0.8px #ffffff",
+      fontWeight: "bold",
+    },
+  },
+  // Row 2 (Badges)
+  {
+    id: "badge-dark-translucent",
+    name: "Nền tối bán trong suốt",
+    style: {
+      color: "#ffffff",
+      backgroundColor: "rgba(30, 30, 30, 0.75)",
+      strokeColor: "transparent",
+      strokeWidth: 0,
+      shadowColor: "transparent",
+      shadowOffsetX: 0,
+      shadowOffsetY: 0,
+      shadowBlur: 0,
+    },
+    previewStyle: {
+      color: "#ffffff",
+      backgroundColor: "rgba(60, 60, 60, 0.85)",
+      padding: "2px 6px",
+      borderRadius: "3px",
+      fontSize: "9px",
+      fontWeight: "bold",
+    },
+  },
+  {
+    id: "badge-yellow-black",
+    name: "Nền vàng chữ đen",
+    style: {
+      color: "#000000",
+      backgroundColor: "#fadc19",
+      strokeColor: "transparent",
+      strokeWidth: 0,
+      shadowColor: "transparent",
+      shadowOffsetX: 0,
+      shadowOffsetY: 0,
+      shadowBlur: 0,
+    },
+    previewStyle: {
+      color: "#000000",
+      backgroundColor: "#fadc19",
+      padding: "2px 6px",
+      borderRadius: "3px",
+      fontSize: "9px",
+      fontWeight: "bold",
+    },
+  },
+  {
+    id: "badge-purple-white",
+    name: "Nền tím chữ trắng",
+    style: {
+      color: "#ffffff",
+      backgroundColor: "#9c27b0",
+      strokeColor: "transparent",
+      strokeWidth: 0,
+      shadowColor: "transparent",
+      shadowOffsetX: 0,
+      shadowOffsetY: 0,
+      shadowBlur: 0,
+    },
+    previewStyle: {
+      color: "#ffffff",
+      backgroundColor: "#9c27b0",
+      padding: "2px 6px",
+      borderRadius: "3px",
+      fontSize: "9px",
+      fontWeight: "bold",
+    },
+  },
+  {
+    id: "badge-white-purple",
+    name: "Nền trắng chữ tím",
+    style: {
+      color: "#9c27b0",
+      backgroundColor: "#ffffff",
+      strokeColor: "transparent",
+      strokeWidth: 0,
+      shadowColor: "transparent",
+      shadowOffsetX: 0,
+      shadowOffsetY: 0,
+      shadowBlur: 0,
+    },
+    previewStyle: {
+      color: "#9c27b0",
+      backgroundColor: "#ffffff",
+      padding: "2px 6px",
+      borderRadius: "3px",
+      fontSize: "9px",
+      fontWeight: "bold",
+    },
+  },
+  {
+    id: "badge-white-black",
+    name: "Nền trắng chữ đen",
+    style: {
+      color: "#000000",
+      backgroundColor: "#ffffff",
+      strokeColor: "transparent",
+      strokeWidth: 0,
+      shadowColor: "transparent",
+      shadowOffsetX: 0,
+      shadowOffsetY: 0,
+      shadowBlur: 0,
+    },
+    previewStyle: {
+      color: "#000000",
+      backgroundColor: "#ffffff",
+      padding: "2px 6px",
+      borderRadius: "3px",
+      fontSize: "9px",
+      fontWeight: "bold",
+    },
+  },
+  {
+    id: "badge-black-white",
+    name: "Nền đen chữ trắng",
+    style: {
+      color: "#ffffff",
+      backgroundColor: "#000000",
+      strokeColor: "transparent",
+      strokeWidth: 0,
+      shadowColor: "transparent",
+      shadowOffsetX: 0,
+      shadowOffsetY: 0,
+      shadowBlur: 0,
+    },
+    previewStyle: {
+      color: "#ffffff",
+      backgroundColor: "#000000",
+      padding: "2px 6px",
+      borderRadius: "3px",
+      fontSize: "9px",
+      fontWeight: "bold",
+    },
+  },
+  {
+    id: "badge-darkgreen-green",
+    name: "Nền xanh lá đậm",
+    style: {
+      color: "#00ff00",
+      backgroundColor: "#003300",
+      strokeColor: "transparent",
+      strokeWidth: 0,
+      shadowColor: "transparent",
+      shadowOffsetX: 0,
+      shadowOffsetY: 0,
+      shadowBlur: 0,
+    },
+    previewStyle: {
+      color: "#00ff00",
+      backgroundColor: "#003300",
+      padding: "2px 6px",
+      borderRadius: "3px",
+      fontSize: "9px",
+      fontWeight: "bold",
+    },
+  },
+  {
+    id: "stroke-green-only",
+    name: "Viền xanh lá rỗng",
+    style: {
+      color: "transparent",
+      strokeColor: "#00ff00",
+      strokeWidth: 3,
+      shadowColor: "#000000",
+      shadowOffsetX: 2,
+      shadowOffsetY: 2,
+      shadowBlur: 2,
+      backgroundColor: "transparent",
+    },
+    previewStyle: {
+      color: "transparent",
+      WebkitTextStroke: "1px #00ff00",
+      textShadow: "1.5px 1.5px 1px #000000",
+      fontWeight: "bold",
+    },
+  },
+  {
+    id: "yellow-red-stroke",
+    name: "Vàng viền đỏ",
+    style: {
+      color: "#fadc19",
+      strokeColor: "#e53935",
+      strokeWidth: 3,
+      shadowColor: "transparent",
+      shadowOffsetX: 0,
+      shadowOffsetY: 0,
+      shadowBlur: 0,
+      backgroundColor: "transparent",
+    },
+    previewStyle: {
+      color: "#fadc19",
+      WebkitTextStroke: "1px #e53935",
+      fontWeight: "bold",
+    },
+  },
+  {
+    id: "pink-glow",
+    name: "Hồng phát sáng",
+    style: {
+      color: "#ff4081",
+      strokeColor: "transparent",
+      strokeWidth: 0,
+      shadowColor: "#ff4081",
+      shadowOffsetX: 0,
+      shadowOffsetY: 0,
+      shadowBlur: 10,
+      backgroundColor: "transparent",
+    },
+    previewStyle: {
+      color: "#ff4081",
+      textShadow: "0 0 5px #ff4081",
+      fontWeight: "bold",
+    },
+  },
+  // Row 3
+  {
+    id: "yellow-glow",
+    name: "Vàng phát sáng",
+    style: {
+      color: "#fadc19",
+      strokeColor: "transparent",
+      strokeWidth: 0,
+      shadowColor: "#fadc19",
+      shadowOffsetX: 0,
+      shadowOffsetY: 0,
+      shadowBlur: 10,
+      backgroundColor: "transparent",
+    },
+    previewStyle: {
+      color: "#fadc19",
+      textShadow: "0 0 5px #fadc19",
+      fontWeight: "bold",
+    },
+  },
+  {
+    id: "green-glow",
+    name: "Lá phát sáng",
+    style: {
+      color: "#00ff00",
+      strokeColor: "transparent",
+      strokeWidth: 0,
+      shadowColor: "#00ff00",
+      shadowOffsetX: 0,
+      shadowOffsetY: 0,
+      shadowBlur: 10,
+      backgroundColor: "transparent",
+    },
+    previewStyle: {
+      color: "#00ff00",
+      textShadow: "0 0 5px #00ff00",
+      fontWeight: "bold",
+    },
+  },
+];
+
 interface TextSectionProps {
   clipId?: string;
   clipIds?: string[];
@@ -357,6 +831,41 @@ export const TextSection: React.FC<TextSectionProps> = ({ clipId, clipIds }) => 
           />
         </div>
       )}
+
+      {/* Preset Styles Section */}
+      <div className="space-y-2">
+        <span className="text-[10px] text-text-secondary font-medium">Kiểu mặc định</span>
+        <div className="grid grid-cols-6 gap-2 p-2 bg-background-tertiary rounded-lg max-h-[160px] overflow-y-auto">
+          {TEXT_PRESETS.map((preset) => {
+            const isNoStyle = preset.id === "none";
+            return (
+              <button
+                key={preset.id}
+                onClick={() => handleStyleChange(preset.style)}
+                className="aspect-square bg-background-secondary hover:bg-background-elevated border border-border hover:border-primary rounded-md flex items-center justify-center transition-all p-1 relative overflow-hidden group"
+                title={preset.name}
+              >
+                {isNoStyle ? (
+                  <div className="w-5 h-5 rounded-full border border-text-muted relative flex items-center justify-center">
+                    <div className="w-6 h-0.5 bg-text-muted rotate-45 absolute" />
+                  </div>
+                ) : (
+                  <span
+                    style={{
+                      fontFamily: style.fontFamily,
+                      fontSize: "12px",
+                      lineHeight: "1",
+                      ...preset.previewStyle,
+                    }}
+                  >
+                    Aa
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
       <div className="space-y-2 p-3 bg-background-tertiary rounded-lg">
         <FontSelector

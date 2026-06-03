@@ -86,8 +86,8 @@ export class VideoEngine {
   private cacheStats = { hits: 0, misses: 0 };
   private preloadQueue: PreloadRequest[] = [];
   private isPreloading = false;
-  private compositeCanvas: OffscreenCanvas | null = null;
-  private compositeCtx: OffscreenCanvasRenderingContext2D | null = null;
+  private compositeCanvas: HTMLCanvasElement | OffscreenCanvas | null = null;
+  private compositeCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null = null;
   private decodeCanvas: OffscreenCanvas | null = null;
   private decodeCtx: OffscreenCanvasRenderingContext2D | null = null;
 
@@ -597,8 +597,14 @@ export class VideoEngine {
       this.compositeCanvas.width !== width ||
       this.compositeCanvas.height !== height
     ) {
-      this.compositeCanvas = new OffscreenCanvas(width, height);
-      this.compositeCtx = this.compositeCanvas.getContext("2d") as OffscreenCanvasRenderingContext2D;
+      if (typeof document !== "undefined") {
+        this.compositeCanvas = document.createElement("canvas");
+        this.compositeCanvas.width = width;
+        this.compositeCanvas.height = height;
+      } else {
+        this.compositeCanvas = new OffscreenCanvas(width, height);
+      }
+      this.compositeCtx = this.compositeCanvas.getContext("2d") as any;
     }
     const canvas = this.compositeCanvas;
     const ctx = this.compositeCtx!;
@@ -959,7 +965,7 @@ export class VideoEngine {
   }
 
   private drawFrameToContext(
-    ctx: OffscreenCanvasRenderingContext2D,
+    ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
     frame: ImageBitmap,
     transform: Transform,
     opacity: number,
@@ -1023,7 +1029,7 @@ export class VideoEngine {
   }
 
   private async captureSubjectFrame(
-    ctx: OffscreenCanvasRenderingContext2D,
+    ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
     width: number,
     height: number,
   ): Promise<ImageBitmap | null> {
@@ -1035,7 +1041,7 @@ export class VideoEngine {
   }
 
   private async drawMaskedSubjectFromFrame(
-    ctx: OffscreenCanvasRenderingContext2D,
+    ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
     subjectFrame: ImageBitmap | null,
     width: number,
     height: number,
@@ -1075,7 +1081,7 @@ export class VideoEngine {
   }
 
   private async renderTextClipWithSubjectMask(
-    ctx: OffscreenCanvasRenderingContext2D,
+    ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
     textClip: TextClip,
     time: number,
     width: number,
@@ -1148,7 +1154,7 @@ export class VideoEngine {
   }
 
   private renderTextClipToCanvasCtx(
-    ctx: OffscreenCanvasRenderingContext2D,
+    ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
     textClip: TextClip,
     time: number,
     width: number,
@@ -1166,7 +1172,7 @@ export class VideoEngine {
   }
 
   private async renderShapeClipToCanvasCtx(
-    ctx: OffscreenCanvasRenderingContext2D,
+    ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
     shapeClip: ShapeClip,
     time: number,
     width: number,
@@ -1189,7 +1195,7 @@ export class VideoEngine {
   }
 
   private async renderSVGClipToCanvasCtx(
-    ctx: OffscreenCanvasRenderingContext2D,
+    ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
     svgClip: import("../graphics/types").SVGClip,
     time: number,
     width: number,
@@ -1211,7 +1217,7 @@ export class VideoEngine {
   }
 
   private async renderStickerClipToCanvasCtx(
-    ctx: OffscreenCanvasRenderingContext2D,
+    ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
     stickerClip: import("../graphics/types").StickerClip,
     time: number,
     width: number,
@@ -1240,7 +1246,7 @@ export class VideoEngine {
   }
 
   private renderParticlesToContext(
-    ctx: OffscreenCanvasRenderingContext2D,
+    ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
     time: number,
     width: number,
     height: number,
@@ -1289,7 +1295,7 @@ export class VideoEngine {
   }
 
   private renderSubtitleToCanvasCtx(
-    ctx: OffscreenCanvasRenderingContext2D,
+    ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
     subtitle: Subtitle,
     canvasWidth: number,
     canvasHeight: number,
@@ -2000,7 +2006,7 @@ export class VideoEngine {
           typeof (
             sample as {
               draw?: (
-                ctx: OffscreenCanvasRenderingContext2D,
+                ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
                 x: number,
                 y: number,
               ) => void;
@@ -2010,7 +2016,7 @@ export class VideoEngine {
           (
             sample as {
               draw: (
-                ctx: OffscreenCanvasRenderingContext2D,
+                ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
                 x: number,
                 y: number,
               ) => void;
@@ -2221,8 +2227,14 @@ export class VideoEngine {
       this.compositeCanvas.width !== width ||
       this.compositeCanvas.height !== height
     ) {
-      this.compositeCanvas = new OffscreenCanvas(width, height);
-      this.compositeCtx = this.compositeCanvas.getContext("2d");
+      if (typeof document !== "undefined") {
+        this.compositeCanvas = document.createElement("canvas");
+        this.compositeCanvas.width = width;
+        this.compositeCanvas.height = height;
+      } else {
+        this.compositeCanvas = new OffscreenCanvas(width, height);
+      }
+      this.compositeCtx = this.compositeCanvas.getContext("2d") as any;
     }
   }
 

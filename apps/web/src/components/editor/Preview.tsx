@@ -379,7 +379,7 @@ export const Preview: React.FC = () => {
   const animationRef = useRef<number | null>(null);
   const renderBridgeInitialized = useRef<boolean>(false);
   const lastGoodFrameRef = useRef<ImageBitmap | null>(null);
-  const offscreenCanvasRef = useRef<OffscreenCanvas | null>(null);
+  const offscreenCanvasRef = useRef<HTMLCanvasElement | OffscreenCanvas | null>(null);
   const decodeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const decodeDebounceResolveRef = useRef<((value: ImageBitmap | null) => void) | null>(
     null,
@@ -391,7 +391,7 @@ export const Preview: React.FC = () => {
   const lastPreviewRenderTimeRef = useRef(0);
   const lastRenderFrameDirectlyRef = useRef<any>(null);
   const lastRenderFallbackFrameRef = useRef<any>(null);
-  const offscreenCtxRef = useRef<OffscreenCanvasRenderingContext2D | null>(
+  const offscreenCtxRef = useRef<CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null>(
     null,
   );
 
@@ -521,6 +521,7 @@ export const Preview: React.FC = () => {
   const [showZoomMenu, setShowZoomMenu] = useState(false);
   const [nativeTextOverlayClips, setNativeTextOverlayClips] = useState<TextClip[]>([]);
   const nativeTextOverlayKeyRef = useRef("");
+  const [fontsLoadedToggle, setFontsLoadedToggle] = useState(0);
 
   const ZOOM_OPTIONS = [
     { label: "50%", value: 0.5 },
@@ -684,8 +685,15 @@ export const Preview: React.FC = () => {
         const { width, height } = entry.contentRect;
         setCanvasSize({ width, height });
         if (width > 0 && height > 0) {
-          offscreenCanvasRef.current = new OffscreenCanvas(width, height);
-          offscreenCtxRef.current = offscreenCanvasRef.current.getContext("2d");
+          if (typeof document !== "undefined") {
+            const canvas = document.createElement("canvas");
+            canvas.width = width;
+            canvas.height = height;
+            offscreenCanvasRef.current = canvas;
+          } else {
+            offscreenCanvasRef.current = new OffscreenCanvas(width, height);
+          }
+          offscreenCtxRef.current = offscreenCanvasRef.current.getContext("2d") as any;
         }
       }
     });
@@ -1191,15 +1199,15 @@ export const Preview: React.FC = () => {
       const tracksToRender = overlayTracksWithIndex.filter(
         ({ originalIndex }) => {
           if (mode === "below-video") {
-            return originalIndex > highestVideoIndex;
-          } else if (mode === "above-video") {
             return originalIndex < lowestVideoIndex;
+          } else if (mode === "above-video") {
+            return originalIndex > highestVideoIndex;
           }
           return true;
         },
       );
 
-      tracksToRender.sort((a, b) => b.originalIndex - a.originalIndex);
+      tracksToRender.sort((a, b) => a.originalIndex - b.originalIndex);
 
       for (const { track } of tracksToRender) {
         if (track.type === "graphics") {
@@ -1802,13 +1810,20 @@ export const Preview: React.FC = () => {
         offscreenCanvasRef.current.width !== canvas.width ||
         offscreenCanvasRef.current.height !== canvas.height
       ) {
-        offscreenCanvasRef.current = new OffscreenCanvas(
-          canvas.width,
-          canvas.height,
-        );
+        if (typeof document !== "undefined") {
+          const offCanvas = document.createElement("canvas");
+          offCanvas.width = canvas.width;
+          offCanvas.height = canvas.height;
+          offscreenCanvasRef.current = offCanvas;
+        } else {
+          offscreenCanvasRef.current = new OffscreenCanvas(
+            canvas.width,
+            canvas.height,
+          );
+        }
         offscreenCtxRef.current = offscreenCanvasRef.current.getContext(
           "2d",
-        ) as OffscreenCanvasRenderingContext2D;
+        ) as any;
       }
 
       const ctx =
@@ -2035,7 +2050,7 @@ export const Preview: React.FC = () => {
                 track.type === "graphics") &&
               !track.hidden,
           )
-          .sort((a, b) => b.originalIndex - a.originalIndex);
+          .sort((a, b) => a.originalIndex - b.originalIndex);
 
         let subjectFrame: ImageBitmap | null = null;
         const shouldCompositeSubject = hasBehindSubjectText(activeTextClips);
@@ -2281,6 +2296,24 @@ export const Preview: React.FC = () => {
     return () => setImageLoadCallback(null);
   }, []);
 
+  useEffect(() => {
+    if (typeof document === "undefined" || !document.fonts) return;
+
+    const handleFontsLoaded = () => {
+      setFontsLoadedToggle((prev) => prev + 1);
+      if (!isPlayingRef.current) {
+        renderFrameDirectlyRef.current(playheadPositionRef.current);
+      }
+    };
+
+    document.fonts.addEventListener("loadingdone", handleFontsLoaded);
+    document.fonts.ready.then(handleFontsLoaded);
+
+    return () => {
+      document.fonts.removeEventListener("loadingdone", handleFontsLoaded);
+    };
+  }, []);
+
   const renderFallbackFrame = useCallback(
     (time: number) => {
       const canvas = canvasRef.current;
@@ -2332,7 +2365,7 @@ export const Preview: React.FC = () => {
               track.type === "graphics") &&
             !track.hidden,
         )
-        .sort((a, b) => b.originalIndex - a.originalIndex);
+        .sort((a, b) => a.originalIndex - b.originalIndex);
 
       for (const { track } of allRenderableTracks) {
         if (track.type === "video" || track.type === "image") {
@@ -3834,13 +3867,20 @@ export const Preview: React.FC = () => {
         offscreenCanvasRef.current.width !== canvas.width ||
         offscreenCanvasRef.current.height !== canvas.height
       ) {
-        offscreenCanvasRef.current = new OffscreenCanvas(
-          canvas.width,
-          canvas.height,
-        );
+        if (typeof document !== "undefined") {
+          const offCanvas = document.createElement("canvas");
+          offCanvas.width = canvas.width;
+          offCanvas.height = canvas.height;
+          offscreenCanvasRef.current = offCanvas;
+        } else {
+          offscreenCanvasRef.current = new OffscreenCanvas(
+            canvas.width,
+            canvas.height,
+          );
+        }
         offscreenCtxRef.current = offscreenCanvasRef.current.getContext(
           "2d",
-        ) as OffscreenCanvasRenderingContext2D;
+        ) as any;
       }
 
       const ctx = offscreenCtxRef.current as unknown as CanvasRenderingContext2D;
@@ -4206,7 +4246,7 @@ export const Preview: React.FC = () => {
                     track.type === "graphics") &&
                   !track.hidden,
               )
-              .sort((a, b) => b.originalIndex - a.originalIndex);
+              .sort((a, b) => a.originalIndex - b.originalIndex);
 
             const useGPU =
               rendererRef.current &&
@@ -4262,10 +4302,13 @@ export const Preview: React.FC = () => {
                     (tc) => tc.trackId === track.id,
                   );
                   for (const textClip of trackTextClips) {
-                    const offscreen = new OffscreenCanvas(
-                      canvas.width,
-                      canvas.height,
-                    );
+                    const offscreen = typeof document !== "undefined"
+                      ? document.createElement("canvas")
+                      : new OffscreenCanvas(canvas.width, canvas.height);
+                    if (offscreen instanceof HTMLCanvasElement) {
+                      offscreen.width = canvas.width;
+                      offscreen.height = canvas.height;
+                    }
                     const offCtx = offscreen.getContext("2d");
                     if (offCtx) {
                       renderTextClipToCanvas(
@@ -4928,7 +4971,7 @@ export const Preview: React.FC = () => {
       displayScale,
       isTextClip: true,
     };
-  }, [selectedTextClip, settings.width, settings.height, canvasSize]);
+  }, [selectedTextClip, settings.width, settings.height, canvasSize, fontsLoadedToggle]);
 
   const selectedShapeClipId = useMemo(() => {
     const shapeClipSelection = selectedItems.find(
