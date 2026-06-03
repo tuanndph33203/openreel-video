@@ -1213,6 +1213,7 @@ export const InspectorPanel: React.FC = () => {
               </Section>
             )}
 
+
             {/* Text Clip Content Editor */}
             {clipType === "text" && (
               <Section title="Text Content" sectionId="text-content" defaultOpen={true}>

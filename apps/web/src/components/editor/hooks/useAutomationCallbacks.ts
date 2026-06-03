@@ -134,6 +134,7 @@ export function useAutomationCallbacks() {
               videoContext: config.videoContext || undefined,
               glossary,
               temperature: config.aiTemperature !== undefined ? config.aiTemperature : undefined,
+              translationBranch: config.translationBranch,
               customBaseUrl:
                 config.aiProvider === "openai"
                   ? customOpenAiBaseUrl

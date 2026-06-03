@@ -10,6 +10,7 @@ import {
   Wand2,
   FileStack,
   Volume2,
+  Sparkles,
 } from "lucide-react";
 import { ScrollArea } from "@openreel/ui";
 import { AutoCaptionPanel } from "./inspector/AutoCaptionPanel";
@@ -18,10 +19,11 @@ import { FilterPresetsPanel } from "./inspector/FilterPresetsPanel";
 import { MusicLibraryPanel } from "./inspector/MusicLibraryPanel";
 import { TemplatesBrowserPanel } from "./inspector/TemplatesBrowserPanel";
 import { MultiCameraPanel } from "./inspector/MultiCameraPanel";
+import { VideoSummaryPanel } from "./panels/VideoSummaryPanel";
 import { useTtsAudioStore } from "../../stores/tts-store";
 import { toast } from "../../stores/notification-store";
 
-type FeatureId = "templates" | "captions" | "tts" | "filters" | "music" | "multicam" | null;
+type FeatureId = "templates" | "captions" | "tts" | "filters" | "music" | "multicam" | "insights" | null;
 
 interface FeatureCardProps {
   icon: React.ElementType;
@@ -125,6 +127,8 @@ export const AIGenTab: React.FC = () => {
         return <MusicLibraryPanel />;
       case "multicam":
         return <MultiCameraPanel />;
+      case "insights":
+        return <VideoSummaryPanel />;
       default:
         return null;
     }
@@ -182,6 +186,18 @@ export const AIGenTab: React.FC = () => {
             activeRing="ring-purple-500/30"
             isActive={activeFeature === "captions"}
             onClick={() => handleFeatureClick("captions")}
+          />
+          <FeatureCard
+            icon={Sparkles}
+            title="AI Video Insights (Mimo)"
+            description="Summarize video, split chapters, generate SEO tags"
+            iconColor="text-yellow-400"
+            iconBg="bg-yellow-500/20"
+            activeBorder="border-yellow-500/50"
+            activeBg="bg-yellow-500/10"
+            activeRing="ring-yellow-500/30"
+            isActive={activeFeature === "insights"}
+            onClick={() => handleFeatureClick("insights")}
           />
         </FeatureSection>
 

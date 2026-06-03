@@ -255,7 +255,8 @@ export const AutoCaptionPanel: React.FC = () => {
   const [aiTone, setAiTone] = useState<string>("natural and fluent");
   const [videoContext, setVideoContext] = useState<string>("");
   const [glossaryText, setGlossaryText] = useState<string>("");
-  const [aiTemperature, setAiTemperature] = useState<number>(0.5);
+  const [aiTemperature, setAiTemperature] = useState<number>(0.0);
+  const [translationBranch, setTranslationBranch] = useState<"A" | "B">("A");
 
   // TTS configurations
   const [ttsProvider, setTtsProvider] = useState<TtsProvider>(defaultProvider);
@@ -297,6 +298,7 @@ export const AutoCaptionPanel: React.FC = () => {
         if (config.videoContext !== undefined) setVideoContext(config.videoContext);
         if (config.glossaryText !== undefined) setGlossaryText(config.glossaryText);
         if (config.aiTemperature !== undefined) setAiTemperature(config.aiTemperature);
+        if (config.translationBranch !== undefined) setTranslationBranch(config.translationBranch);
         if (config.ttsProvider !== undefined) setTtsProvider(config.ttsProvider);
         if (config.ttsVoiceId !== undefined) setSelectedVoice(config.ttsVoiceId);
         if (config.ttsSpeed !== undefined) setTtsSpeed(config.ttsSpeed);
@@ -650,6 +652,7 @@ export const AutoCaptionPanel: React.FC = () => {
           apiKey,
           tone: aiTone,
           videoContext: videoContext.trim() || undefined,
+          translationBranch,
           customBaseUrl:
             aiProvider === "openai"
               ? customOpenAiBaseUrl
@@ -915,7 +918,7 @@ export const AutoCaptionPanel: React.FC = () => {
                     <span className="text-primary font-medium">{aiTemperature.toFixed(2)}</span>
                   </div>
                   <Slider
-                    min={0.3}
+                    min={0.0}
                     max={1.0}
                     step={0.05}
                     value={[aiTemperature]}
@@ -927,8 +930,32 @@ export const AutoCaptionPanel: React.FC = () => {
                     disabled={isTranscribing}
                   />
                   <span className="text-[8px] text-text-muted block leading-tight">
-                    Mức thấp (0.3) sẽ dịch ổn định, bám sát nghĩa gốc. Mức cao (0.5 - 1.0) cho phép AI viết bay bổng, tự nhiên hơn. Bị giới hạn tối thiểu 0.3.
+                    Mức thấp (0.0) sẽ dịch ổn định, bám sát nghĩa gốc. Mức cao (0.5 - 1.0) cho phép AI viết bay bổng, tự nhiên hơn. Bị giới hạn tối thiểu 0.0.
                   </span>
+                </div>
+
+                {/* A/B Optimization Test */}
+                <div className="flex items-center justify-between gap-3 mt-2">
+                  <div className="flex flex-col">
+                    <span className="text-[10px] text-text-secondary">Tối ưu hóa Token (A/B Test)</span>
+                    <span className="text-[8px] text-text-muted">Nhánh B cắt bớt context và luật prompt</span>
+                  </div>
+                  <Select
+                    value={translationBranch}
+                    onValueChange={(val: "A" | "B") => {
+                      setTranslationBranch(val);
+                      saveAutomationConfig({ translationBranch: val });
+                    }}
+                    disabled={isTranscribing}
+                  >
+                    <SelectTrigger className="w-auto min-w-[120px] bg-background-secondary border-border text-text-primary text-[10px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-background-secondary border-border">
+                      <SelectItem value="A">Nhánh A (Đầy đủ)</SelectItem>
+                      <SelectItem value="B">Nhánh B (Tối ưu)</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                   <input
                     type="text"

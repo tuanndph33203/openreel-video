@@ -11,6 +11,11 @@ export interface AutomationConfig {
   glossaryText?: string;
   animationStyle?: string;
   aiTemperature?: number;
+  translationBranch?: "A" | "B";
+  insightsAiProvider?: "openai" | "anthropic" | "gemini";
+  insightsCustomModel?: string;
+  insightsTemperature?: number;
+  insightsSeoLanguages?: string[];
   
   tts: boolean;
   ttsProvider?: "piper" | "elevenlabs" | "vieneu";

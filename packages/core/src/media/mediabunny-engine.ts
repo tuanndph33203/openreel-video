@@ -88,36 +88,42 @@ export class ExportFrameDecoder {
   async initialize(): Promise<boolean> {
     if (this.initialized) return true;
 
-    const { Input, ALL_FORMATS, CanvasSink } = this.mediabunny;
+    try {
+      const { Input, ALL_FORMATS, CanvasSink } = this.mediabunny;
 
-    this.input = new Input({
-      source: createMediaBunnySource(this.mediabunny, this.file as any),
-      formats: ALL_FORMATS,
-    }) as unknown as MediaBunnyInput;
+      this.input = new Input({
+        source: createMediaBunnySource(this.mediabunny, this.file as any),
+        formats: ALL_FORMATS,
+      }) as unknown as MediaBunnyInput;
 
-    const videoTrack = await this.input.getPrimaryVideoTrack();
-    if (!videoTrack) {
+      const videoTrack = await this.input.getPrimaryVideoTrack();
+      if (!videoTrack) {
+        this.dispose();
+        return false;
+      }
+
+      const canDecode = await videoTrack.canDecode();
+      if (!canDecode) {
+        this.dispose();
+        return false;
+      }
+
+      const sinkOptions: Record<string, unknown> = { poolSize: 2 };
+      if (this.width) {
+        const aspectRatio = videoTrack.displayHeight / videoTrack.displayWidth;
+        sinkOptions.width = this.width;
+        sinkOptions.height = Math.round(this.width * aspectRatio);
+        sinkOptions.fit = "contain";
+      }
+
+      this.sink = new CanvasSink(videoTrack, sinkOptions);
+      this.initialized = true;
+      return true;
+    } catch (err) {
+      console.error("[ExportFrameDecoder] Failed to initialize media decoder:", err);
       this.dispose();
       return false;
     }
-
-    const canDecode = await videoTrack.canDecode();
-    if (!canDecode) {
-      this.dispose();
-      return false;
-    }
-
-    const sinkOptions: Record<string, unknown> = { poolSize: 2 };
-    if (this.width) {
-      const aspectRatio = videoTrack.displayHeight / videoTrack.displayWidth;
-      sinkOptions.width = this.width;
-      sinkOptions.height = Math.round(this.width * aspectRatio);
-      sinkOptions.fit = "contain";
-    }
-
-    this.sink = new CanvasSink(videoTrack, sinkOptions);
-    this.initialized = true;
-    return true;
   }
 
   async getFrame(timestamp: number): Promise<OffscreenCanvas | null> {

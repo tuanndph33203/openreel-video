@@ -10,6 +10,7 @@ export interface TranslationSettings {
   temperature?: number;
   previousContext?: string[];
   nextContext?: string[];
+  translationBranch?: "A" | "B";
 }
 
 export interface BatchPayload {
@@ -22,10 +23,12 @@ export interface BatchPayload {
   previousContext?: string[];
   lines: Array<{ id: string; text: string }>;
   nextContext?: string[];
+  translationBranch?: "A" | "B";
 }
 
 export function buildSystemPrompt(settings: TranslationSettings, isUltraShort = false): string {
   const isVietnamese = settings.targetLanguage.toLowerCase().includes("viet");
+  const isBranchB = settings.translationBranch === "B";
   
   if (isUltraShort) {
     const viRules = isVietnamese ? "\n- Dich tu nhien (dung Ad, bọn mình, tụi mình). TUYET DOI KHONG gop dong. Giu nguyen so dong." : "";
@@ -36,7 +39,27 @@ Rules:
 - NO explanations, NO markdown, NO merged lines.`;
   }
 
-  const viRules = isVietnamese ? `
+  let viRules = "";
+  if (isVietnamese) {
+    if (isBranchB) {
+      // Branch B: Omit MULTI-SPEAKER and CONTEXT REPAIR rules
+      viRules = `
+- GAMING TONE & SLANG: Use natural Vietnamese gamer lingo:
+  * "棒子服" or "棒子" (slang for Korean server) -> "server Hàn", "bọn Hàn" (NEVER "Bàng Tử" or "Bổng Tử").
+  * "老子" -> "Tao", "ông đây", "bố đây" (angry gamer tone).
+  * "公会" -> "bang hội".
+  * "打劫了一个服" -> "cướp cả một server".
+  * "复活点" -> "điểm hồi sinh".
+  * "国战" -> "quốc chiến".
+  * "大佬" / "老大" -> "đại ca", "đại lão".
+  * "爆了" (gear context) -> "bay màu", "rớt hết", "nổ đồ".
+- SINO-VIETNAMESE NAMES: For character names and location names written in Chinese that are NOT in the user's glossary, transliterate naturally into Sino-Vietnamese (e.g., "夜无梦" -> "Dạ Vô Mộng", "梦幻城" -> "Thành Mộng Ảo").
+- GLOSSARY PRIORITY (CRITICAL): If a user-defined Glossary is provided, it takes ABSOLUTE PRIORITY over any default translation. Always apply glossary mappings first.
+- BALANCED LINE SPLITTING (CRITICAL): When a word or phrase is split across two lines, restructure the translations on both lines so that each line is readable and natural as an individual subtitle, maintaining 1-to-1 line correspondence.
+- BAN TARGET LANGUAGE CORRUPTION (CRITICAL): Written 100% in pure, grammatically correct Vietnamese. NEVER output raw Chinese characters, pinyin, or English loanwords.`;
+    } else {
+      // Branch A: Original full prompt rules
+      viRules = `
 - CROSS-LINE CONTEXT & MULTI-SPEAKER RULE (CRITICAL): The input text is heavily fragmented and is often a game world chat log or a fast-paced conversation among multiple distinct players. Translate them as separate, natural conversational turns.
 - ASR TYPO TOLERANCE & CONTEXT REPAIR (CRITICAL): Correct common ASR homophone typos mentally before translating:
   * "女" near names or ends of phrases -> "呢" (nhé/nhỉ/cơ mà).
@@ -55,7 +78,9 @@ Rules:
 - SINO-VIETNAMESE NAMES: For character names and location names written in Chinese that are NOT in the user's glossary, transliterate naturally into Sino-Vietnamese (e.g., "夜无梦" -> "Dạ Vô Mộng", "梦幻城" -> "Thành Mộng Ảo"). Use the VIDEO CONTEXT provided by the user for any additional name hints.
 - GLOSSARY PRIORITY (CRITICAL): If a user-defined Glossary is provided, it takes ABSOLUTE PRIORITY over any default translation. Always apply glossary mappings first.
 - BALANCED LINE SPLITTING (CRITICAL): When a word or phrase is split across two lines, restructure the translations on both lines so that each line is readable and natural as an individual subtitle, maintaining 1-to-1 line correspondence.
-- BAN TARGET LANGUAGE CORRUPTION (CRITICAL): Written 100% in pure, grammatically correct Vietnamese. NEVER output raw Chinese characters, pinyin, or English loanwords.` : "";
+- BAN TARGET LANGUAGE CORRUPTION (CRITICAL): Written 100% in pure, grammatically correct Vietnamese. NEVER output raw Chinese characters, pinyin, or English loanwords.`;
+    }
+  }
 
   let glossaryRule = "";
   if (settings.glossary && Object.keys(settings.glossary).length > 0) {
@@ -65,8 +90,10 @@ Rules:
     glossaryRule = `\n- GLOSSARY (Translate these terms exactly as specified):\n${glossaryItems}`;
   }
 
+  const topicHeader = isBranchB ? "" : `. Topic: ${settings.topic || "N/A"}`;
+
   return `You are an expert subtitle translator from ${settings.sourceLanguage} to ${settings.targetLanguage}.
-Tone: ${settings.tone || "natural and fluent"}. Topic: ${settings.topic || "N/A"}.
+Tone: ${settings.tone || "natural and fluent"}${topicHeader}.
 
 Task: Translate the given subtitle lines.
 Rules:
@@ -298,12 +325,13 @@ export function buildRequestBody(
   provider: "openai" | "anthropic" | "gemini",
   isMimo: boolean,
   lineCount: number,
-  temperature = 0.5
+  temperature = 0.0
 ): any {
-  // Enforce strictly at least 0.3 and satisfy compiler
-  const finalTemperature = Math.max(0.3, temperature);
-  // User-requested testing token limit to monitor exact consumption without artificial caps
-  const maxCompletionTokens = 100000;
+  const isReasoningModel = resolvedModel.startsWith('o1') || resolvedModel.startsWith('o3') || isMimo;
+  
+  // Set lower temperature and limit max tokens for reasoning models to avoid verbose thoughts
+  const finalTemperature = isReasoningModel ? 0.0 : Math.max(0.0, temperature);
+  const maxCompletionTokens = isReasoningModel ? 4000 : 100000;
   if (lineCount) {}
 
   const userContent = typeof payload === 'string' ? payload : JSON.stringify(payload);
@@ -320,12 +348,12 @@ export function buildRequestBody(
       max_completion_tokens: maxCompletionTokens
     };
 
-    const isReasoningModel = resolvedModel.startsWith('o1') || resolvedModel.startsWith('o3');
     if (isReasoningModel) {
       body.reasoning_effort = "low";
     }
 
-    if (!isMimo && !isReasoningModel) {
+    const isActualReasoning = resolvedModel.startsWith('o1') || resolvedModel.startsWith('o3') || isMimo;
+    if (!isActualReasoning) {
       body.response_format = { type: "json_object" };
     }
     return body;
@@ -487,9 +515,9 @@ export async function translateBatchWithRetry(
 
   const userMessage = formatUserMessage(batchLines, previousContext, nextContext);
 
-  const targetTemp = settings.temperature !== undefined ? Math.max(0.3, settings.temperature) : 0.5;
+  const targetTemp = settings.temperature !== undefined ? Math.max(0.0, settings.temperature) : 0.0;
 
-  // Attempt 1: Normal Prompt, temp = 0.5
+  // Attempt 1: Normal Prompt, temp = targetTemp
   try {
     console.log(`[AI Translation] Attempt 1 (Index-based, temp ${targetTemp}) for ${batchLines.length} lines...`);
     const systemPrompt = buildSystemPrompt(settings, false);
@@ -716,7 +744,7 @@ export async function sanitizeBatchWithRetry(
   };
 
   const userMessage = formatUserMessage(batchLines, previousContext, nextContext);
-  const targetTemp = settings.temperature !== undefined ? Math.max(0.3, settings.temperature) : 0.5;
+  const targetTemp = settings.temperature !== undefined ? Math.max(0.0, settings.temperature) : 0.0;
 
   try {
     console.log(`[AI Sanitization] (temp ${targetTemp}) for ${batchLines.length} lines...`);
@@ -847,6 +875,7 @@ export interface TranscriptionConfig {
     customModel?: string;
     glossary?: Record<string, string>;
     temperature?: number;
+    translationBranch?: "A" | "B";
   };
 }
 
@@ -1118,10 +1147,11 @@ export class TranscriptionService {
       topic,
       glossary: aiConfig.glossary,
       temperature: aiConfig.temperature,
+      translationBranch: aiConfig.translationBranch,
     };
 
     const BATCH_SIZE = 20;
-    const CONTEXT_WINDOW = 5;
+    const CONTEXT_WINDOW = settings.translationBranch === 'B' ? 2 : 5;
     const globalTranslationMap = new Map<string, string>();
 
     for (let i = 0; i < textSubtitles.length; i += BATCH_SIZE) {
@@ -1271,22 +1301,14 @@ export class TranscriptionService {
       topic,
       glossary: aiConfig.glossary,
       temperature: aiConfig.temperature,
+      translationBranch: aiConfig.translationBranch,
     };
 
     const BATCH_SIZE = 20;
-    const CONTEXT_WINDOW = 5;
     const globalSanitizeMap = new Map<string, string>();
 
     for (let i = 0; i < textSubtitles.length; i += BATCH_SIZE) {
       const batchLines = textSubtitles.slice(i, i + BATCH_SIZE);
-
-      const prevLines = textSubtitles
-        .slice(Math.max(0, i - CONTEXT_WINDOW), i)
-        .map(s => s.text);
-
-      const nextLines = textSubtitles
-        .slice(i + BATCH_SIZE, Math.min(textSubtitles.length, i + BATCH_SIZE + CONTEXT_WINDOW))
-        .map(s => s.text);
 
       try {
         const batchMap = await recursiveBatchSanitize(
@@ -1297,8 +1319,8 @@ export class TranscriptionService {
           provider,
           resolvedModel,
           isMimo,
-          prevLines,
-          nextLines
+          undefined, // Omit prevLines context for sanitization
+          undefined  // Omit nextLines context for sanitization
         );
         for (const [id, text] of batchMap) {
           globalSanitizeMap.set(id, text);
