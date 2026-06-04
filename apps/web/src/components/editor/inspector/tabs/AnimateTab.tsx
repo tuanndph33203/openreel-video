@@ -8,6 +8,7 @@ import {
   TextAnimationSection,
 } from "../";
 import { InspectorSection } from "../shell/InspectorSection";
+import { useTranslation } from "../../../../hooks/use-translation";
 
 export interface AnimateTabProps {
   clipId: string;
@@ -20,9 +21,11 @@ export const AnimateTab: React.FC<AnimateTabProps> = ({
   clipType,
   showTextSection,
 }) => {
+  const { t } = useTranslation();
+
   return (
     <>
-      <InspectorSection title="Keyframes" sectionId="keyframes">
+      <InspectorSection title={t("inspector.sections.keyframes", "Keyframes")} sectionId="keyframes">
         <KeyframesSection clipId={clipId} />
       </InspectorSection>
       {(clipType === "video" ||
@@ -32,7 +35,7 @@ export const AnimateTab: React.FC<AnimateTabProps> = ({
         clipType === "svg" ||
         clipType === "sticker") && (
         <InspectorSection
-          title="Transitions"
+          title={t("inspector.sections.transitions", "Transitions")}
           sectionId="transitions"
           defaultOpen={false}
         >
@@ -45,7 +48,7 @@ export const AnimateTab: React.FC<AnimateTabProps> = ({
         clipType === "svg" ||
         clipType === "sticker") && (
         <InspectorSection
-          title="Motion Presets"
+          title={t("inspector.sections.motion_presets", "Motion Presets")}
           sectionId="motion-presets"
           defaultOpen={false}
         >
@@ -59,7 +62,7 @@ export const AnimateTab: React.FC<AnimateTabProps> = ({
         clipType === "svg" ||
         clipType === "sticker") && (
         <InspectorSection
-          title="Motion Path"
+          title={t("inspector.sections.motion_path", "Motion Path")}
           sectionId="motion-path"
           defaultOpen={false}
         >
@@ -73,7 +76,7 @@ export const AnimateTab: React.FC<AnimateTabProps> = ({
         clipType === "svg" ||
         clipType === "sticker") && (
         <InspectorSection
-          title="Emphasis Animation"
+          title={t("inspector.sections.emphasis_animation", "Emphasis Animation")}
           sectionId="emphasis-animation"
           defaultOpen={false}
         >
@@ -82,7 +85,7 @@ export const AnimateTab: React.FC<AnimateTabProps> = ({
       )}
       {showTextSection && (
         <InspectorSection
-          title="Text Animation"
+          title={t("inspector.sections.text_animation", "Text Animation")}
           sectionId="text-animation"
           defaultOpen={false}
         >
@@ -92,3 +95,5 @@ export const AnimateTab: React.FC<AnimateTabProps> = ({
     </>
   );
 };
+
+export default AnimateTab;

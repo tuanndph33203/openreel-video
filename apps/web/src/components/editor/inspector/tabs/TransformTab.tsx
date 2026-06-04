@@ -8,6 +8,7 @@ import {
   Transform3DSection,
 } from "../";
 import { InspectorSection } from "../shell/InspectorSection";
+import { useTranslation } from "../../../../hooks/use-translation";
 
 interface TransformTabClip {
   id: string;
@@ -16,6 +17,7 @@ interface TransformTabClip {
 
 export interface TransformTabProps {
   clipId: string;
+  clipIds?: string[];
   clipType: string | null;
   selectedClip: TransformTabClip | null;
   showTransformControls: boolean;
@@ -26,6 +28,7 @@ export interface TransformTabProps {
 
 export const TransformTab: React.FC<TransformTabProps> = ({
   clipId,
+  clipIds,
   clipType,
   selectedClip,
   showTransformControls,
@@ -33,14 +36,16 @@ export const TransformTab: React.FC<TransformTabProps> = ({
   transform,
   handleTransformChange,
 }) => {
+  const { t } = useTranslation();
+
   return (
     <>
       {showTransformControls && (
         <>
-          <InspectorSection title="Transform" sectionId="transform">
+          <InspectorSection title={t("inspector.sections.transform", "Transform")} sectionId="transform">
             <div className="space-y-3">
               <LabeledSlider
-                label="Position X"
+                label={t("inspector.transform.pos_x", "Position X")}
                 value={transform.position.x}
                 onChange={(x) =>
                   handleTransformChange({
@@ -54,7 +59,7 @@ export const TransformTab: React.FC<TransformTabProps> = ({
                 defaultValue={0}
               />
               <LabeledSlider
-                label="Position Y"
+                label={t("inspector.transform.pos_y", "Position Y")}
                 value={transform.position.y}
                 onChange={(y) =>
                   handleTransformChange({
@@ -68,7 +73,7 @@ export const TransformTab: React.FC<TransformTabProps> = ({
                 defaultValue={0}
               />
               <LabeledSlider
-                label="Scale X"
+                label={t("inspector.transform.scale_x", "Scale X")}
                 value={transform.scale.x * 100}
                 onChange={(x) =>
                   handleTransformChange({
@@ -82,7 +87,7 @@ export const TransformTab: React.FC<TransformTabProps> = ({
                 defaultValue={100}
               />
               <LabeledSlider
-                label="Scale Y"
+                label={t("inspector.transform.scale_y", "Scale Y")}
                 value={transform.scale.y * 100}
                 onChange={(y) =>
                   handleTransformChange({
@@ -96,7 +101,7 @@ export const TransformTab: React.FC<TransformTabProps> = ({
                 defaultValue={100}
               />
               <LabeledSlider
-                label="Rotation"
+                label={t("inspector.transform.rotation", "Rotation")}
                 value={transform.rotation}
                 onChange={(rotation) => handleTransformChange({ rotation })}
                 min={-180}
@@ -106,7 +111,7 @@ export const TransformTab: React.FC<TransformTabProps> = ({
                 defaultValue={0}
               />
               <LabeledSlider
-                label="Opacity"
+                label={t("inspector.transform.opacity", "Opacity")}
                 value={transform.opacity * 100}
                 onChange={(opacity) =>
                   handleTransformChange({ opacity: opacity / 100 })
@@ -118,7 +123,7 @@ export const TransformTab: React.FC<TransformTabProps> = ({
                 defaultValue={100}
               />
               <LabeledSlider
-                label="Border Radius"
+                label={t("inspector.transform.border_radius", "Border Radius")}
                 value={transform.borderRadius || 0}
                 onChange={(borderRadius) =>
                   handleTransformChange({ borderRadius })
@@ -132,7 +137,7 @@ export const TransformTab: React.FC<TransformTabProps> = ({
               {(clipType === "image" || clipType === "video") && (
                 <div className="space-y-1 pt-2 border-t border-border">
                   <span className="text-[10px] text-text-secondary">
-                    Fit Mode
+                    {t("inspector.transform.fit_mode", "Fit Mode")}
                   </span>
                   <div className="grid grid-cols-3 gap-1">
                     {(["contain", "cover", "stretch"] as FitMode[]).map(
@@ -154,10 +159,10 @@ export const TransformTab: React.FC<TransformTabProps> = ({
                             }`}
                           >
                             {mode === "contain"
-                              ? "Fit"
+                              ? t("inspector.transform.fit", "Fit")
                               : mode === "cover"
-                                ? "Fill"
-                                : mode}
+                                ? t("inspector.transform.fill", "Fill")
+                                : t("inspector.transform.stretch", "Stretch")}
                           </button>
                         );
                       },
@@ -176,7 +181,7 @@ export const TransformTab: React.FC<TransformTabProps> = ({
         !selectedClip.mediaId.startsWith("shape-") &&
         !selectedClip.mediaId.startsWith("svg-") &&
         !selectedClip.mediaId.startsWith("sticker-") && (
-          <InspectorSection title="Crop" sectionId="crop" defaultOpen={false}>
+          <InspectorSection title={t("inspector.sections.crop", "Crop")} sectionId="crop" defaultOpen={false}>
             <CropSection clip={selectedClip as Clip} />
           </InspectorSection>
         )}
@@ -188,11 +193,11 @@ export const TransformTab: React.FC<TransformTabProps> = ({
         clipType === "svg" ||
         clipType === "sticker") && (
         <InspectorSection
-          title="Alignment"
+          title={t("inspector.sections.alignment", "Alignment")}
           sectionId="alignment"
           defaultOpen={false}
         >
-          <AlignmentSection clipId={clipId} />
+          <AlignmentSection clipId={clipId} clipIds={clipIds} />
         </InspectorSection>
       )}
 
@@ -203,11 +208,11 @@ export const TransformTab: React.FC<TransformTabProps> = ({
         clipType === "svg" ||
         clipType === "sticker") && (
         <InspectorSection
-          title="Blending"
+          title={t("inspector.sections.blending", "Blending")}
           sectionId="blending"
           defaultOpen={false}
         >
-          <BlendingSection clipId={clipId} />
+          <BlendingSection clipId={clipId} clipIds={clipIds} />
         </InspectorSection>
       )}
 
@@ -218,13 +223,14 @@ export const TransformTab: React.FC<TransformTabProps> = ({
         clipType === "svg" ||
         clipType === "sticker") && (
         <InspectorSection
-          title="3D Transforms"
+          title={t("inspector.sections.transform_3d", "3D Transforms")}
           sectionId="transform-3d"
           defaultOpen={false}
         >
-          <Transform3DSection clipId={clipId} />
+          <Transform3DSection clipId={clipId} clipIds={clipIds} />
         </InspectorSection>
       )}
     </>
   );
 };
+

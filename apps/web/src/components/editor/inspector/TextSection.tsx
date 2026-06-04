@@ -693,10 +693,11 @@ export const TextSection: React.FC<TextSectionProps> = ({ clipId, clipIds }) => 
 
   const handleTextChange = useCallback(
     (newText: string) => {
-      if (!textClip) return;
-      updateTextContent(textClip.id, newText);
+      for (const clip of textClips) {
+        updateTextContent(clip.id, newText);
+      }
     },
-    [textClip, updateTextContent],
+    [textClips, updateTextContent],
   );
 
   const handleStyleChange = useCallback(
@@ -786,27 +787,26 @@ export const TextSection: React.FC<TextSectionProps> = ({ clipId, clipIds }) => 
 
   return (
     <div className="space-y-4">
-      {isBatchEditing ? (
+      {isBatchEditing && (
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2">
           <p className="text-[10px] font-medium text-amber-300">
             Editing {textClips.length} selected text clips
           </p>
           <p className="text-[9px] text-text-muted">
-            Style and geometry changes apply to all selected text/sub clips.
+            Style, geometry, and text content changes apply to all selected text clips.
           </p>
         </div>
-      ) : (
-        <div className="space-y-2">
-          <span className="text-[10px] text-text-secondary">Text Content</span>
-          <textarea
-            value={text}
-            onChange={(e) => handleTextChange(e.target.value)}
-            placeholder="Enter text..."
-            className="w-full h-20 px-3 py-2 text-sm text-text-primary bg-background-tertiary border border-border rounded-lg resize-none outline-none focus:border-primary"
-            style={{ fontFamily: style.fontFamily }}
-          />
-        </div>
       )}
+      <div className="space-y-2">
+        <span className="text-[10px] text-text-secondary">Text Content</span>
+        <textarea
+          value={text}
+          onChange={(e) => handleTextChange(e.target.value)}
+          placeholder="Enter text..."
+          className="w-full h-20 px-3 py-2 text-sm text-text-primary bg-background-tertiary border border-border rounded-lg resize-none outline-none focus:border-primary"
+          style={{ fontFamily: style.fontFamily }}
+        />
+      </div>
 
       {/* Preset Styles Section */}
       <div className="space-y-2">
@@ -1149,7 +1149,7 @@ export const TextSection: React.FC<TextSectionProps> = ({ clipId, clipIds }) => 
         />
       </div>
 
-      <Text3DControls clipId={clipId} />
+      <Text3DControls clipId={textClip.id} />
     </div>
   );
 };

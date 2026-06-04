@@ -345,7 +345,8 @@ export function buildRequestBody(
       ],
       temperature: finalTemperature,
       top_p: 0.9,
-      max_completion_tokens: maxCompletionTokens
+      max_completion_tokens: maxCompletionTokens,
+      stream: false // Force standard non-streaming response
     };
 
     if (isReasoningModel) {
@@ -364,7 +365,8 @@ export function buildRequestBody(
     max_tokens: maxCompletionTokens,
     system: systemPrompt,
     messages: [{ role: 'user', content: userContent }],
-    temperature: finalTemperature
+    temperature: finalTemperature,
+    stream: false // Force standard non-streaming response
   };
 }
 
@@ -1442,8 +1444,8 @@ export class TranscriptionService {
         
         const args = [
           "-ss", inPoint.toString(),
-          "-i", mediaItem.filePath,
           "-t", originalDurationConsumed.toString(),
+          "-i", mediaItem.filePath,
           "-vn",
           "-acodec", "pcm_s16le",
           "-ac", "1",
@@ -1465,6 +1467,7 @@ export class TranscriptionService {
             filters.push(`atempo=${temp}`);
           }
           args.push("-filter:a", filters.join(","));
+          args.push("-t", duration.toString());
         }
         
         args.push("-f", "wav", "-");

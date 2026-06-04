@@ -11,10 +11,12 @@ import { useProjectStore } from "../../../stores/project-store";
 
 interface AlignmentSectionProps {
   clipId: string;
+  clipIds?: string[];
 }
 
 export const AlignmentSection: React.FC<AlignmentSectionProps> = ({
   clipId,
+  clipIds,
 }) => {
   const { updateClipTransform } = useProjectStore();
 
@@ -33,18 +35,35 @@ export const AlignmentSection: React.FC<AlignmentSectionProps> = ({
     (axis: "x" | "y", value: number) => {
       const current = findClipTransform();
       const currentPos = current.position ?? { x: 0.5, y: 0.5 };
-      updateClipTransform(clipId, {
-        position: { ...currentPos, [axis]: value },
-      });
+      const targetIds = clipIds && clipIds.length > 0 ? clipIds : [clipId];
+      for (const id of targetIds) {
+        let pos = currentPos;
+        if (id !== clipId) {
+          const { project } = useProjectStore.getState();
+          for (const track of project.timeline.tracks) {
+            const c = track.clips.find((x) => x.id === id);
+            if (c) {
+              pos = c.transform?.position ?? { x: 0.5, y: 0.5 };
+              break;
+            }
+          }
+        }
+        updateClipTransform(id, {
+          position: { ...pos, [axis]: value },
+        });
+      }
     },
-    [clipId, updateClipTransform, findClipTransform],
+    [clipId, clipIds, updateClipTransform, findClipTransform],
   );
 
   const handleCenterBoth = useCallback(() => {
-    updateClipTransform(clipId, {
-      position: { x: 0.5, y: 0.5 },
-    });
-  }, [clipId, updateClipTransform]);
+    const targetIds = clipIds && clipIds.length > 0 ? clipIds : [clipId];
+    for (const id of targetIds) {
+      updateClipTransform(id, {
+        position: { x: 0.5, y: 0.5 },
+      });
+    }
+  }, [clipId, clipIds, updateClipTransform]);
 
   const buttonClass =
     "p-2 rounded-md bg-background-tertiary border border-border hover:border-primary/50 hover:bg-primary/5 transition-all text-text-secondary hover:text-primary";

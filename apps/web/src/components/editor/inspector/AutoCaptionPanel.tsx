@@ -68,6 +68,8 @@ const TONE_OPTIONS = [
   { value: "storytelling and engaging", label: "Storytelling (Kể chuyện)" },
   { value: "formal and professional", label: "Formal (Trang trọng)" },
   { value: "casual and friendly", label: "Casual (Thân mật)" },
+  { value: "funny, humorous, witty and entertaining", label: "Hài hước & Vui vẻ" },
+  { value: "aggressive, hot-tempered, rude gamer slang but funny and hilarious", label: "Cục súc & Hài hước (Gamer)" },
 ];
 
 export const AutoCaptionPanel: React.FC = () => {
@@ -416,7 +418,14 @@ export const AutoCaptionPanel: React.FC = () => {
     }
     if (ttsProvider === "vieneu") {
       return [
-        { voiceId: "default", name: "VieNeu Mặc định (Tiếng Việt)" },
+        { voiceId: "default", name: "VieNeu Mặc định" },
+        { voiceId: "Binh", name: "Bình (Nam miền Bắc)" },
+        { voiceId: "Tuyen", name: "Tuyên (Nam miền Bắc)" },
+        { voiceId: "Vinh", name: "Vĩnh (Nam miền Nam)" },
+        { voiceId: "Ly", name: "Lý (Nữ miền Bắc)" },
+        { voiceId: "Ngoc", name: "Ngọc (Nữ miền Bắc)" },
+        { voiceId: "Doan", name: "Đoan (Nữ miền Nam)" },
+        { voiceId: "custom_0525", name: "Giọng bé" },
       ];
     }
     // ElevenLabs voices

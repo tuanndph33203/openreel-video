@@ -89,6 +89,7 @@ export const Timeline: React.FC = () => {
     removeVideoEffect,
   } = useProjectStore();
   const tracks = project.timeline.tracks;
+  const visualOrderTracks = useMemo(() => tracks, [tracks]);
 
   const [draggedTrackId, setDraggedTrackId] = React.useState<string | null>(
     null,
@@ -774,6 +775,7 @@ export const Timeline: React.FC = () => {
     selectionBox,
     pixelsPerSecond,
     tracks,
+    visualOrderTracks,
     getTrackHeight,
     selectMultiple,
     allTextClips,
@@ -997,7 +999,7 @@ export const Timeline: React.FC = () => {
     [tracks],
   );
 
-  const visualOrderTracks = useMemo(() => tracks, [tracks]);
+
 
   // Small, mockup-styled timeline tool button
   const TLTool = ({

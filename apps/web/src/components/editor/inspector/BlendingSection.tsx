@@ -16,9 +16,13 @@ import {
 
 interface BlendingSectionProps {
   clipId: string;
+  clipIds?: string[];
 }
 
-export const BlendingSection: React.FC<BlendingSectionProps> = ({ clipId }) => {
+export const BlendingSection: React.FC<BlendingSectionProps> = ({
+  clipId,
+  clipIds,
+}) => {
   const {
     getClip,
     getTextClip,
@@ -59,16 +63,22 @@ export const BlendingSection: React.FC<BlendingSectionProps> = ({ clipId }) => {
 
   const handleBlendModeChange = useCallback(
     (mode: BlendMode) => {
-      updateClipBlendMode(clipId, mode);
+      const targetIds = clipIds && clipIds.length > 0 ? clipIds : [clipId];
+      for (const id of targetIds) {
+        updateClipBlendMode(id, mode);
+      }
     },
-    [clipId, updateClipBlendMode],
+    [clipId, clipIds, updateClipBlendMode],
   );
 
   const handleOpacityChange = useCallback(
     (opacity: number) => {
-      updateClipBlendOpacity(clipId, opacity);
+      const targetIds = clipIds && clipIds.length > 0 ? clipIds : [clipId];
+      for (const id of targetIds) {
+        updateClipBlendOpacity(id, opacity);
+      }
     },
-    [clipId, updateClipBlendOpacity],
+    [clipId, clipIds, updateClipBlendOpacity],
   );
 
   if (!clip) {

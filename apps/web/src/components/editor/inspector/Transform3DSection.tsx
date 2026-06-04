@@ -11,10 +11,12 @@ import {
 
 interface Transform3DSectionProps {
   clipId: string;
+  clipIds?: string[];
 }
 
 export const Transform3DSection: React.FC<Transform3DSectionProps> = ({
   clipId,
+  clipIds,
 }) => {
   const {
     getClip,
@@ -56,37 +58,67 @@ export const Transform3DSection: React.FC<Transform3DSectionProps> = ({
 
   const handleRotateXChange = useCallback(
     (x: number) => {
-      updateClipRotate3D(clipId, { ...rotate3d, x });
+      const targetIds = clipIds && clipIds.length > 0 ? clipIds : [clipId];
+      for (const id of targetIds) {
+        let r3d = rotate3d;
+        if (id !== clipId) {
+          const c = getClip(id) || getTextClip(id) || getShapeClip(id) || getSVGClip(id) || getStickerClip(id);
+          r3d = c?.transform?.rotate3d ?? { x: 0, y: 0, z: 0 };
+        }
+        updateClipRotate3D(id, { ...r3d, x });
+      }
     },
-    [clipId, rotate3d, updateClipRotate3D],
+    [clipId, clipIds, rotate3d, getClip, getTextClip, getShapeClip, getSVGClip, getStickerClip, updateClipRotate3D],
   );
 
   const handleRotateYChange = useCallback(
     (y: number) => {
-      updateClipRotate3D(clipId, { ...rotate3d, y });
+      const targetIds = clipIds && clipIds.length > 0 ? clipIds : [clipId];
+      for (const id of targetIds) {
+        let r3d = rotate3d;
+        if (id !== clipId) {
+          const c = getClip(id) || getTextClip(id) || getShapeClip(id) || getSVGClip(id) || getStickerClip(id);
+          r3d = c?.transform?.rotate3d ?? { x: 0, y: 0, z: 0 };
+        }
+        updateClipRotate3D(id, { ...r3d, y });
+      }
     },
-    [clipId, rotate3d, updateClipRotate3D],
+    [clipId, clipIds, rotate3d, getClip, getTextClip, getShapeClip, getSVGClip, getStickerClip, updateClipRotate3D],
   );
 
   const handleRotateZChange = useCallback(
     (z: number) => {
-      updateClipRotate3D(clipId, { ...rotate3d, z });
+      const targetIds = clipIds && clipIds.length > 0 ? clipIds : [clipId];
+      for (const id of targetIds) {
+        let r3d = rotate3d;
+        if (id !== clipId) {
+          const c = getClip(id) || getTextClip(id) || getShapeClip(id) || getSVGClip(id) || getStickerClip(id);
+          r3d = c?.transform?.rotate3d ?? { x: 0, y: 0, z: 0 };
+        }
+        updateClipRotate3D(id, { ...r3d, z });
+      }
     },
-    [clipId, rotate3d, updateClipRotate3D],
+    [clipId, clipIds, rotate3d, getClip, getTextClip, getShapeClip, getSVGClip, getStickerClip, updateClipRotate3D],
   );
 
   const handlePerspectiveChange = useCallback(
     (value: number) => {
-      updateClipPerspective(clipId, value);
+      const targetIds = clipIds && clipIds.length > 0 ? clipIds : [clipId];
+      for (const id of targetIds) {
+        updateClipPerspective(id, value);
+      }
     },
-    [clipId, updateClipPerspective],
+    [clipId, clipIds, updateClipPerspective],
   );
 
   const handleTransformStyleChange = useCallback(
     (style: "flat" | "preserve-3d") => {
-      updateClipTransformStyle(clipId, style);
+      const targetIds = clipIds && clipIds.length > 0 ? clipIds : [clipId];
+      for (const id of targetIds) {
+        updateClipTransformStyle(id, style);
+      }
     },
-    [clipId, updateClipTransformStyle],
+    [clipId, clipIds, updateClipTransformStyle],
   );
 
   if (!clip) {

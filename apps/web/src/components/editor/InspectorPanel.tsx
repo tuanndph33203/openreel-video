@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Zap, Captions, Loader2, Sparkles, Trash2, FlipHorizontal, FlipVertical, Upload } from "lucide-react";
+import { Captions, Upload } from "lucide-react";
 import { useProjectStore } from "../../stores/project-store";
 import { useTranslation } from "../../hooks/use-translation";
 import { useTimelineStore } from "../../stores/timeline-store";
 import { useUIStore } from "../../stores/ui-store";
 import { useEngineStore } from "../../stores/engine-store";
-import type { Transform, EditingTemplatePrimitive } from "@openreel/core";
+import type { Transform, EditingTemplatePrimitive, Clip } from "@openreel/core";
 import {
   ChromaKeyEngine,
   initializeTranscriptionService,
@@ -142,15 +142,8 @@ export const InspectorPanel: React.FC = () => {
     return getSubtitle(selectedSubtitleId) || null;
   }, [selectedSubtitleId, getSubtitle, project.timeline.subtitles]);
 
-  const selectedTimelineClip = useMemo(() => {
-    if (selectedClipIds.length !== 1) return null;
-    return getClip(selectedClipIds[0]) || null;
-  }, [getClip, project.modifiedAt, selectedClipIds]);
-
-  // Get selected clip (check regular clips, text clips, and shape clips)
-  const selectedClip = useMemo(() => {
-    if (selectedClipIds.length !== 1) return null;
-    const clipId = selectedClipIds[0];
+  // Helper to resolve a clip's full properties by its ID (timeline clips, text, shapes, svgs, stickers)
+  const resolveClip = useCallback((clipId: string) => {
     const regularClip = getClip(clipId);
     if (regularClip) return regularClip;
     const titleEngine = getTitleEngine();
@@ -240,21 +233,73 @@ export const InspectorPanel: React.FC = () => {
       };
     }
     return null;
-  }, [
-    selectedClipIds,
-    getClip,
-    getTitleEngine,
-    getGraphicsEngine,
-    project.modifiedAt,
-  ]);
+  }, [getClip, getTitleEngine, getGraphicsEngine]);
 
-  const selectedTextClipIds = useMemo(() => {
-    const titleEngine = getTitleEngine();
-    if (!titleEngine || selectedClipIds.length < 2) return [];
+  const resolveClipType = useCallback((clip: any) => {
+    if (!clip) return null;
+    if (clip.mediaId.startsWith("text-")) return "text";
+    if (clip.mediaId.startsWith("shape-")) return "shape";
+    if (clip.mediaId.startsWith("svg-")) return "svg";
+    if (clip.mediaId.startsWith("sticker-") || clip.mediaId.startsWith("emoji-")) return "sticker";
 
-    const textIds = selectedClipIds.filter((id) => titleEngine.getTextClip(id));
-    return textIds.length === selectedClipIds.length ? textIds : [];
-  }, [selectedClipIds, getTitleEngine, project.modifiedAt]);
+    const track = project.timeline.tracks.find((t) =>
+      t.clips.some((c) => c.id === clip.id),
+    );
+    if (!track) return "video";
+
+    const mediaItem = project.mediaLibrary.items.find(
+      (item) => item.id === clip.mediaId,
+    );
+    if (track.type === "audio") return "audio";
+    if (track.type === "image" || mediaItem?.type === "image") return "image";
+    return "video";
+  }, [project.timeline.tracks, project.mediaLibrary.items]);
+
+  const selectedClips = useMemo(() => {
+    return selectedClipIds
+      .map((id) => resolveClip(id))
+      .filter((c): c is NonNullable<ReturnType<typeof resolveClip>> => c !== null);
+  }, [selectedClipIds, resolveClip, project.modifiedAt]);
+
+  const clipsWithTypes = useMemo(() => {
+    return selectedClips.map((clip) => ({
+      clip,
+      type: resolveClipType(clip),
+    }));
+  }, [selectedClips, resolveClipType]);
+
+  const allClipsHaveSameType = useMemo(() => {
+    if (clipsWithTypes.length === 0) return false;
+    const firstType = clipsWithTypes[0].type;
+    return clipsWithTypes.every((c) => c.type === firstType);
+  }, [clipsWithTypes]);
+
+  const clipType = useMemo(() => {
+    if (selectedClipIds.length === 1) {
+      if (clipsWithTypes.length === 1) return clipsWithTypes[0].type;
+    } else if (selectedClipIds.length > 1 && allClipsHaveSameType) {
+      return clipsWithTypes[0].type;
+    }
+    return null;
+  }, [selectedClipIds, clipsWithTypes, allClipsHaveSameType]);
+
+  const selectedClip = useMemo(() => {
+    if (selectedClipIds.length === 1) {
+      return clipsWithTypes.length === 1 ? clipsWithTypes[0].clip : null;
+    } else if (selectedClipIds.length > 1 && allClipsHaveSameType) {
+      return clipsWithTypes[0].clip;
+    }
+    return null;
+  }, [selectedClipIds, clipsWithTypes, allClipsHaveSameType]);
+
+  const selectedTimelineClip = useMemo(() => {
+    if (selectedClipIds.length >= 1) {
+      return getClip(selectedClipIds[0]) || null;
+    }
+    return null;
+  }, [getClip, project.modifiedAt, selectedClipIds]);
+
+
 
   const selectedAdjustableClips = useMemo(() => {
     return selectedClipIds
@@ -281,10 +326,11 @@ export const InspectorPanel: React.FC = () => {
   // Transform handlers
   const handleTransformChange = useCallback(
     (changes: Partial<Transform>) => {
-      if (!selectedClip) return;
-      updateClipTransform(selectedClip.id, changes);
+      for (const id of selectedClipIds) {
+        updateClipTransform(id, changes);
+      }
     },
-    [selectedClip, updateClipTransform],
+    [selectedClipIds, updateClipTransform],
   );
 
   // Chroma Key handlers using ChromaKeyEngine
@@ -683,55 +729,7 @@ export const InspectorPanel: React.FC = () => {
     : "#00ff00";
   const tolerance = (chromaKeySettings?.tolerance || 0.3) * 100;
 
-  /**
-   * Detect clip type based on track type and clip properties
-   */
-  const clipType = useMemo(() => {
-    if (!selectedClip) return null;
 
-    // Check mediaId prefix first for text, shape, and SVG clips (they may not be in timeline tracks)
-    if (selectedClip.mediaId.startsWith("text-")) {
-      return "text";
-    }
-
-    if (selectedClip.mediaId.startsWith("shape-")) {
-      return "shape";
-    }
-
-    if (selectedClip.mediaId.startsWith("svg-")) {
-      return "svg";
-    }
-
-    if (
-      selectedClip.mediaId.startsWith("sticker-") ||
-      selectedClip.mediaId.startsWith("emoji-")
-    ) {
-      return "sticker";
-    }
-
-    // Find the track this clip belongs to
-    const track = project.timeline.tracks.find((t) =>
-      t.clips.some((c) => c.id === selectedClip.id),
-    );
-
-    if (!track) return "video";
-
-    // Check for clip types based on track type and media
-    const mediaItem = project.mediaLibrary.items.find(
-      (item) => item.id === selectedClip.mediaId,
-    );
-
-    if (track.type === "audio") {
-      return "audio";
-    }
-
-    if (track.type === "image" || mediaItem?.type === "image") {
-      return "image";
-    }
-
-    // Default to video for video tracks
-    return "video";
-  }, [selectedClip, project.timeline.tracks, project.mediaLibrary.items]);
 
   /**
    * Determine which sections to show based on clip type
@@ -898,704 +896,6 @@ export const InspectorPanel: React.FC = () => {
       <div className="overflow-y-auto flex-1 min-h-0 pb-3.5 custom-scrollbar">
       <div className="px-4 pt-3">
         {selectedClip ? (
-            {clipType === "text" && (
-              <Section title={t('inspector.sections.text_content')} sectionId="text-content" defaultOpen={true}>
-                <div className="space-y-3">
-                  <textarea
-                    value={(selectedClip as any).text || ""}
-                    onChange={(e) => {
-                      const titleEngine = getTitleEngine();
-                      if (titleEngine) {
-                        titleEngine.updateTextClip(clipId, { text: e.target.value });
-                        forceUpdate();
-                      }
-                    }}
-                    className="w-full h-24 px-3 py-2 bg-background-tertiary border border-border rounded-lg text-xs text-text-primary resize-none focus:outline-none focus:border-primary"
-                    placeholder={t('inspector.text_placeholder')}
-                  />
-                </div>
-              </Section>
-            )}
-
-            {/* Transform */}
-            {showTransformControls && (
-              <Section title={t('inspector.sections.transform')} sectionId="transform">
-                <div className="space-y-3">
-                  <LabeledSlider
-                    label={t('inspector.transform.pos_x')}
-                    value={transform.position.x}
-                    onChange={(x) =>
-                      handleTransformChange({
-                        position: { ...transform.position, x },
-                      })
-                    }
-                    min={-1920}
-                    max={1920}
-                    step={1}
-                    unit="px"
-                  />
-                  <LabeledSlider
-                    label={t('inspector.transform.pos_y')}
-                    value={transform.position.y}
-                    onChange={(y) =>
-                      handleTransformChange({
-                        position: { ...transform.position, y },
-                      })
-                    }
-                    min={-1080}
-                    max={1080}
-                    step={1}
-                    unit="px"
-                  />
-                  <LabeledSlider
-                    label={t('inspector.transform.scale_x')}
-                    value={Math.abs(transform.scale.x) * 100}
-                    onChange={(x) =>
-                      handleTransformChange({
-                        scale: {
-                          ...transform.scale,
-                          x: (transform.scale.x < 0 ? -1 : 1) * (x / 100),
-                        },
-                      })
-                    }
-                    min={0}
-                    max={300}
-                    step={1}
-                    unit="%"
-                  />
-                  <LabeledSlider
-                    label={t('inspector.transform.scale_y')}
-                    value={Math.abs(transform.scale.y) * 100}
-                    onChange={(y) =>
-                      handleTransformChange({
-                        scale: {
-                          ...transform.scale,
-                          y: (transform.scale.y < 0 ? -1 : 1) * (y / 100),
-                        },
-                      })
-                    }
-                    min={0}
-                    max={300}
-                    step={1}
-                    unit="%"
-                  />
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        handleTransformChange({
-                          scale: {
-                            ...transform.scale,
-                            x:
-                              (transform.scale.x < 0 ? 1 : -1) *
-                              (Math.abs(transform.scale.x) || 1),
-                          },
-                        })
-                      }
-                      className={`flex items-center justify-center gap-2 rounded border px-2 py-2 text-[10px] transition-colors ${
-                        transform.scale.x < 0
-                          ? "border-primary bg-primary text-white"
-                          : "border-border bg-background-tertiary text-text-secondary hover:text-text-primary"
-                      }`}
-                      title="Reflect horizontally"
-                    >
-                      <FlipHorizontal size={14} />
-                      {t('inspector.transform.flip_h')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        handleTransformChange({
-                          scale: {
-                            ...transform.scale,
-                            y:
-                              (transform.scale.y < 0 ? 1 : -1) *
-                              (Math.abs(transform.scale.y) || 1),
-                          },
-                        })
-                      }
-                      className={`flex items-center justify-center gap-2 rounded border px-2 py-2 text-[10px] transition-colors ${
-                        transform.scale.y < 0
-                          ? "border-primary bg-primary text-white"
-                          : "border-border bg-background-tertiary text-text-secondary hover:text-text-primary"
-                      }`}
-                      title="Reflect vertically"
-                    >
-                      <FlipVertical size={14} />
-                      {t('inspector.transform.flip_v')}
-                    </button>
-                  </div>
-                  <LabeledSlider
-                    label={t('inspector.transform.rotation')}
-                    value={transform.rotation}
-                    onChange={(rotation) => handleTransformChange({ rotation })}
-                    min={-180}
-                    max={180}
-                    step={1}
-                    unit="°"
-                  />
-                  <LabeledSlider
-                    label={t('inspector.transform.opacity')}
-                    value={transform.opacity * 100}
-                    onChange={(opacity) =>
-                      handleTransformChange({ opacity: opacity / 100 })
-                    }
-                    min={0}
-                    max={100}
-                    step={1}
-                    unit="%"
-                  />
-                  <LabeledSlider
-                    label={t('inspector.transform.border_radius')}
-                    value={transform.borderRadius || 0}
-                    onChange={(borderRadius) =>
-                      handleTransformChange({ borderRadius })
-                    }
-                    min={0}
-                    max={200}
-                    step={1}
-                    unit="px"
-                  />
-                  {clipType === "image" && (
-                    <div className="space-y-1 pt-2 border-t border-border">
-                      <span className="text-[10px] text-text-secondary">
-                        {t('inspector.transform.fit_mode')}
-                      </span>
-                      <div className="grid grid-cols-4 gap-1">
-                        {(
-                          ["contain", "cover", "stretch", "none"] as FitMode[]
-                        ).map((mode) => (
-                          <button
-                            key={mode}
-                            onClick={() =>
-                              handleTransformChange({ fitMode: mode })
-                            }
-                            className={`py-1.5 rounded text-[9px] capitalize transition-colors ${
-                              (transform.fitMode || "none") === mode
-                                ? "bg-primary text-white"
-                                : "bg-background-tertiary border border-border text-text-secondary hover:text-text-primary"
-                            }`}
-                          >
-                            {mode === "contain"
-                              ? t('inspector.transform.fit')
-                              : mode === "cover"
-                                ? t('inspector.transform.fill')
-                                : mode}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </Section>
-            )}
-
-            {/* Crop */}
-            {showVideoControls &&
-              selectedClip &&
-              !selectedClip.mediaId.startsWith("text-") &&
-              !selectedClip.mediaId.startsWith("shape-") &&
-              !selectedClip.mediaId.startsWith("svg-") &&
-              !selectedClip.mediaId.startsWith("sticker-") && (
-                <Section title={t('inspector.sections.crop')} sectionId="crop" defaultOpen={false}>
-                  <CropSection clip={selectedClip as Clip} />
-                </Section>
-              )}
-
-            {/* Speed & Direction */}
-            {showVideoControls &&
-              selectedClip &&
-              !selectedClip.mediaId.startsWith("text-") &&
-              !selectedClip.mediaId.startsWith("shape-") &&
-              !selectedClip.mediaId.startsWith("svg-") &&
-              !selectedClip.mediaId.startsWith("sticker-") && (
-                <Section
-                  title={t('inspector.sections.speed_direction')}
-                  sectionId="speed"
-                  defaultOpen={true}
-                >
-                  <SpeedSection clip={selectedClip as Clip} />
-                </Section>
-              )}
-
-            {/* Stabilization */}
-            {showVideoControls &&
-              selectedClip &&
-              !selectedClip.mediaId.startsWith("text-") &&
-              !selectedClip.mediaId.startsWith("shape-") &&
-              !selectedClip.mediaId.startsWith("svg-") &&
-              !selectedClip.mediaId.startsWith("sticker-") && (
-                <Section
-                  title={t('inspector.sections.stabilization')}
-                  sectionId="stabilization"
-                  defaultOpen={false}
-                >
-                  <StabilizationSection clip={selectedClip as Clip} />
-                </Section>
-              )}
-
-            {/* Speed Curves */}
-            {showVideoControls &&
-              selectedClip &&
-              !selectedClip.mediaId.startsWith("text-") &&
-              !selectedClip.mediaId.startsWith("shape-") &&
-              !selectedClip.mediaId.startsWith("svg-") &&
-              !selectedClip.mediaId.startsWith("sticker-") && (
-                <Section
-                  title={t('inspector.sections.speed_curves')}
-                  sectionId="speed-curves"
-                  defaultOpen={false}
-                >
-                  <SpeedRampSection clip={selectedClip as Clip} />
-                </Section>
-              )}
-
-            {/* Alignment - Position element on canvas */}
-            {(clipType === "video" ||
-              clipType === "image" ||
-              clipType === "text" ||
-              clipType === "shape" ||
-              clipType === "svg" ||
-              clipType === "sticker") && (
-              <Section
-                title={t('inspector.sections.alignment')}
-                sectionId="alignment"
-                defaultOpen={false}
-              >
-                <AlignmentSection clipId={clipId} />
-              </Section>
-            )}
-
-            {/* Blending - Layer compositing blend modes */}
-            {(clipType === "video" ||
-              clipType === "image" ||
-              clipType === "text" ||
-              clipType === "shape" ||
-              clipType === "svg" ||
-              clipType === "sticker") && (
-              <Section
-                title={t('inspector.sections.blending')}
-                sectionId="blending"
-                defaultOpen={false}
-              >
-                <BlendingSection clipId={clipId} />
-              </Section>
-            )}
-
-            {/* 3D Transforms - After Effects-style 3D rotation */}
-            {(clipType === "video" ||
-              clipType === "image" ||
-              clipType === "text" ||
-              clipType === "shape" ||
-              clipType === "svg" ||
-              clipType === "sticker") && (
-              <Section
-                title={t('inspector.sections.transform_3d')}
-                sectionId="transform-3d"
-                defaultOpen={false}
-              >
-                <Transform3DSection clipId={clipId} />
-              </Section>
-            )}
-
-            {/* Keyframes - Using KeyframeEngine */}
-            <Section title={t('inspector.sections.keyframes')} sectionId="keyframes">
-              <KeyframesSection clipId={clipId} />
-            </Section>
-
-            {/* Entry/Exit Transitions - For all visual clips */}
-            {(clipType === "video" ||
-              clipType === "image" ||
-              clipType === "text" ||
-              clipType === "shape" ||
-              clipType === "svg" ||
-              clipType === "sticker") && (
-              <Section
-                title={t('inspector.sections.transitions')}
-                sectionId="transitions"
-                defaultOpen={false}
-              >
-                <ClipTransitionSection clipId={clipId} />
-              </Section>
-            )}
-
-            {/* Motion Presets - Advanced animation presets */}
-            {(clipType === "video" ||
-              clipType === "image" ||
-              clipType === "shape" ||
-              clipType === "svg" ||
-              clipType === "sticker") && (
-              <Section
-                title={t('inspector.sections.motion_presets')}
-                sectionId="motion-presets"
-                defaultOpen={false}
-              >
-                <MotionPresetsPanel clipId={clipId} />
-              </Section>
-            )}
-
-            {/* Motion Path - Animate position along a path */}
-            {(clipType === "video" ||
-              clipType === "image" ||
-              clipType === "text" ||
-              clipType === "shape" ||
-              clipType === "svg" ||
-              clipType === "sticker") && (
-              <Section
-                title={t('inspector.sections.motion_path')}
-                sectionId="motion-path"
-                defaultOpen={false}
-              >
-                <MotionPathSection clipId={clipId} />
-              </Section>
-            )}
-
-            {/* Particle Effects - Visual particle systems */}
-            {(clipType === "video" ||
-              clipType === "image" ||
-              clipType === "text" ||
-              clipType === "shape" ||
-              clipType === "svg" ||
-              clipType === "sticker") &&
-              selectedClip && (
-                <Section
-                  title={t('inspector.sections.particle_effects')}
-                  sectionId="particle-effects"
-                  defaultOpen={false}
-                >
-                  <ParticleEffectsSectionWrapper
-                    clipId={clipId}
-                    clipDuration={selectedClip.duration}
-                    clipStartTime={selectedClip.startTime}
-                  />
-                </Section>
-              )}
-
-            {/* Emphasis Animation - Looping animations while clip is visible */}
-            {(clipType === "video" ||
-              clipType === "image" ||
-              clipType === "text" ||
-              clipType === "shape" ||
-              clipType === "svg" ||
-              clipType === "sticker") && (
-              <Section
-                title={t('inspector.sections.emphasis_animation')}
-                sectionId="emphasis-animation"
-                defaultOpen={false}
-              >
-                <EmphasisAnimationSection clipId={clipId} />
-              </Section>
-            )}
-
-            {/* Chroma Key - Using ChromaKeyEngine - Only for video/image */}
-            {showVideoControls && (
-              <Section title={t('inspector.sections.chroma_key')}>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-text-secondary">
-                      {t('template_preview.label_enabled')}
-                    </span>
-                    <Switch
-                      checked={chromaKeyEnabled}
-                      onCheckedChange={handleChromaKeyToggle}
-                    />
-                  </div>
-                  {chromaKeyEnabled && (
-                    <>
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] text-text-secondary">
-                          {t('inspector.subtitle_style.highlight_color')}
-                        </span>
-                        <input
-                          type="color"
-                          value={keyColor}
-                          onChange={(e) => handleKeyColorChange(e.target.value)}
-                          className="w-8 h-6 rounded border border-border cursor-pointer"
-                        />
-                      </div>
-                      <LabeledSlider
-                        label={t('inspector.sections.tolerance')}
-                        value={tolerance}
-                        onChange={handleToleranceChange}
-                        unit="%"
-                      />
-                    </>
-                  )}
-                </div>
-              </Section>
-            )}
-
-            {/* Motion Tracking - Using MotionTrackingEngine - Only for video/image */}
-            {showVideoControls && (
-              <Section title={t('inspector.sections.motion_tracking')} sectionId="motion-tracking">
-                <MotionTrackingSection clipId={clipId} />
-              </Section>
-            )}
-
-            {showVideoEffects && (
-              <Section title={t('inspector.sections.video_effects')} sectionId="video-effects">
-                <VideoEffectsSection clipId={clipId} />
-              </Section>
-            )}
-
-            {showVideoEffects && (
-              <Section
-                title={t('inspector.sections.green_screen')}
-                sectionId="green-screen"
-                defaultOpen={false}
-              >
-                <GreenScreenSection clipId={clipId} />
-              </Section>
-            )}
-
-            {/* Picture-in-Picture Section */}
-            {showVideoControls && (
-              <Section
-                title={t('inspector.sections.pip')}
-                sectionId="pip"
-                defaultOpen={false}
-              >
-                <PiPSection clipId={clipId} />
-              </Section>
-            )}
-
-            {showVideoControls && (
-              <Section title={t('inspector.sections.masking')} sectionId="masking" defaultOpen={false}>
-                <MaskSection clipId={clipId} />
-              </Section>
-            )}
-
-            {showVideoControls && (
-              <Section title={t('inspector.sections.nested_sequences')} defaultOpen={false}>
-                <NestedSequenceSection clipId={clipId} />
-              </Section>
-            )}
-
-            {showVideoControls && (
-              <Section title={t('inspector.sections.adjustment_layers')} defaultOpen={false}>
-                <AdjustmentLayerSection clipId={clipId} />
-              </Section>
-            )}
-
-            {showColorGrading && (
-              <Section
-                title={t('inspector.sections.color_grading')}
-                sectionId="color-grading"
-                defaultOpen={false}
-              >
-                <ColorGradingSection clipId={clipId} />
-              </Section>
-            )}
-
-            {showAudioEffects && selectedAdjustableClips.length === 1 && (
-              <Section title={t('inspector.sections.volume')} sectionId="volume" defaultOpen={true}>
-                <div className="space-y-3 p-3 bg-background-secondary rounded-lg border border-border/50">
-                  <LabeledSlider
-                    label={t('inspector.sections.volume')}
-                    value={Math.round((selectedAdjustableClips[0]?.volume ?? 1) * 100)}
-                    onChange={handleVolumeChange}
-                    min={0}
-                    max={400}
-                    step={1}
-                    unit="%"
-                  />
-                  <div className="flex justify-between text-[10px] text-text-muted mt-1 px-1">
-                    <span>{t('inspector.quick_actions.mute')}</span>
-                    <span>100% ({t('inspector.quick_actions.normal')})</span>
-                    <span>400% ({t('inspector.quick_actions.boost')})</span>
-                  </div>
-                </div>
-              </Section>
-            )}
-
-            {showAudioEffects && (
-              <Section
-                title={noiseReductionSectionTitle}
-                sectionId="background-noise-removal"
-                defaultOpen={Boolean(selectedNoiseReductionEffect)}
-              >
-                <NoiseReductionSection clipId={clipId} />
-              </Section>
-            )}
-
-            {showAudioEffects && (
-              <Section
-                title={t('inspector.sections.audio_effects')}
-                sectionId="audio-effects"
-                defaultOpen={false}
-              >
-                <AudioEffectsSection clipId={clipId} />
-              </Section>
-            )}
-
-            {showAudioEffects && (
-              <Section
-                title={t('inspector.sections.audio_ducking')}
-                sectionId="audio-ducking"
-                defaultOpen={false}
-              >
-                <AudioDuckingSection clipId={clipId} />
-              </Section>
-            )}
-
-            {showTextSection && (
-              <Section title={t('inspector.sections.text_properties')} sectionId="text-properties">
-                <TextSection clipId={clipId} />
-              </Section>
-            )}
-
-            {showTextSection && (
-              <Section
-                title={t('inspector.sections.text_animation')}
-                sectionId="text-animation"
-                defaultOpen={false}
-              >
-                <TextAnimationSection clipId={clipId} />
-              </Section>
-            )}
-
-            {showTextSection && (
-              <Section
-                title={t('inspector.sections.text_behind')}
-                sectionId="text-behind-subject"
-                defaultOpen={false}
-              >
-                <BehindSubjectSection clipId={clipId} />
-              </Section>
-            )}
-
-            {showShapeSection && (
-              <Section title={t('inspector.sections.shape_properties')} sectionId="shape-properties">
-                <ShapeSection clipId={clipId} />
-              </Section>
-            )}
-
-            {/* SVG Section */}
-            {showSVGSection && (
-              <Section title={t('inspector.sections.svg_properties')}>
-                <SVGSection clipId={clipId} />
-              </Section>
-            )}
-             {/* Quick Actions - Only show when there are actions available */}
-            {(showVideoControls || showAudioEffects || showVideoEffects) && (
-              <div className="border border-primary/30 bg-primary/5 rounded-xl p-4 relative overflow-hidden">
-                <div className="flex items-center gap-2 text-primary mb-3">
-                  <Zap size={14} />
-                  <span className="text-xs font-bold">{t('inspector.quick_actions.title')}</span>
-                </div>
-                <div className="space-y-2">
-                  {showVideoControls && (
-                    <button
-                      onClick={handleRemoveBackground}
-                      disabled={isApplyingSelectedClipEffect}
-                      className={`w-full py-2 border rounded-lg text-[10px] transition-all ${
-                        isApplyingSelectedClipEffect
-                          ? "bg-background-tertiary border-border text-text-muted cursor-not-allowed"
-                          : "bg-background-tertiary hover:bg-primary hover:text-white border-border hover:border-primary"
-                      }`}
-                    >
-                      {t('inspector.quick_actions.remove_bg')}
-                    </button>
-                  )}
-                  {showAudioEffects && (
-                    <button
-                      onClick={handleEnhanceAudio}
-                      disabled={isEnhancingAudio || isApplyingSelectedClipEffect}
-                      className={`w-full py-2 border rounded-lg text-[10px] transition-all flex items-center justify-center gap-1.5 ${
-                        audioEnhanced
-                          ? "bg-green-500/20 border-green-500 text-green-400"
-                          : isEnhancingAudio || isApplyingSelectedClipEffect
-                            ? "bg-background-tertiary border-border text-text-muted cursor-not-allowed"
-                            : "bg-background-tertiary hover:bg-primary hover:text-white border-border hover:border-primary"
-                      }`}
-                    >
-                      {isEnhancingAudio ? (
-                        <>
-                          <Loader2 size={12} className="animate-spin" />
-                          {t('inspector.quick_actions.cleaning')}
-                        </>
-                      ) : audioEnhanced ? (
-                        t('inspector.quick_actions.noise_reduced')
-                      ) : (
-                        t('inspector.quick_actions.dialogue_cleanup')
-                      )}
-                    </button>
-                  )}
-                  {showVideoEffects && (
-                    <button
-                      onClick={handleAutoColor}
-                      disabled={isApplyingSelectedClipEffect}
-                      className={`w-full py-2 border rounded-lg text-[10px] transition-all ${
-                        isApplyingSelectedClipEffect
-                          ? "bg-background-tertiary border-border text-text-muted cursor-not-allowed"
-                          : "bg-background-tertiary hover:bg-primary hover:text-white border-border hover:border-primary"
-                      }`}
-                    >
-                      {isApplyingSelectedClipEffect ? t('inspector.quick_actions.applying') : t('inspector.quick_actions.auto_color')}
-                    </button>
-                  )}
-                </div>iv>
-              </div>
-            )}
-          </>
-        ) : selectedAdjustableClips.length > 1 ? (
-          <>
-            <div className="mb-4 p-3 bg-background-tertiary rounded-lg border border-primary/30">
-              <p className="text-xs text-text-primary font-medium">
-                {selectedAdjustableClips.length} clips selected
-              </p>
-              <p className="text-[10px] text-text-muted">
-                Changes below apply to all selected clips.
-              </p>
-            </div>
-
-            <Section
-              title={`Speed & Direction (${selectedAdjustableClips.length} clips)`}
-              sectionId="speed"
-              defaultOpen={true}
-            >
-              <SpeedSection clips={selectedAdjustableClips} />
-            </Section>
-
-            <Section
-              title={`Volume (${selectedAdjustableClips.length} clips)`}
-              sectionId="volume"
-              defaultOpen={true}
-            >
-              <div className="space-y-3 p-3 bg-background-secondary rounded-lg border border-border/50">
-                <LabeledSlider
-                  label="Volume"
-                  value={Math.round((selectedAdjustableClips[0]?.volume ?? 1) * 100)}
-                  onChange={handleVolumeChange}
-                  min={0}
-                  max={400}
-                  step={1}
-                  unit="%"
-                />
-                <div className="flex justify-between text-[10px] text-text-muted mt-1 px-1">
-                  <span>Mute</span>
-                  <span>100% (Normal)</span>
-                  <span>400% (Boost)</span>
-                </div>
-              </div>
-            </Section>
-          </>
-        ) : selectedTextClipIds.length > 1 ? (
-          <>
-            <div className="mb-4 p-3 bg-background-tertiary rounded-lg border border-amber-500/30">
-              <p className="text-xs text-text-primary font-medium">
-                {selectedTextClipIds.length} text clips selected
-              </p>
-              <p className="text-[10px] text-text-muted">
-                Changes below apply to all selected text/sub clips.
-              </p>
-            </div>
-
-            <Section title="Text Properties" sectionId="text-properties">
-              <TextSection clipIds={selectedTextClipIds} />
-            </Section>
-          </>
-=======
           <InspectorTabErrorBoundary key={activeTab}>
             <InspectorTabPanel tab="effects" active={activeTab}>
               <EffectsTab
@@ -1658,12 +958,15 @@ export const InspectorPanel: React.FC = () => {
                 showAudioEffects={showAudioEffects}
                 noiseReductionSectionTitle={noiseReductionSectionTitle}
                 selectedNoiseReductionEffect={selectedNoiseReductionEffect}
+                volume={(selectedClip && "volume" in selectedClip) ? (selectedClip as any).volume : 1}
+                onChangeVolume={handleVolumeChange}
               />
             </InspectorTabPanel>
 
             <InspectorTabPanel tab="transform" active={activeTab}>
               <TransformTab
                 clipId={clipId}
+                clipIds={selectedClipIds}
                 clipType={clipType}
                 selectedClip={selectedClip}
                 showTransformControls={showTransformControls}
@@ -1695,6 +998,7 @@ export const InspectorPanel: React.FC = () => {
             <InspectorTabPanel tab="style" active={activeTab}>
               <StyleTab
                 clipId={clipId}
+                clipIds={selectedClipIds}
                 showTextSection={showTextSection}
                 showShapeSection={showShapeSection}
                 showSVGSection={showSVGSection}
@@ -1702,7 +1006,6 @@ export const InspectorPanel: React.FC = () => {
             </InspectorTabPanel>
 
           </InspectorTabErrorBoundary>
->>>>>>> upstream/main
         ) : selectedSubtitle ? (
           <>
             {/* Subtitle Info */}

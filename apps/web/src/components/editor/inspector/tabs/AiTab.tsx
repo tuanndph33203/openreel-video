@@ -19,6 +19,7 @@ import { AutoReframeSection } from "../";
 import { AutoEditPanel } from "../../panels/AutoEditPanel";
 import { HighlightExtractorPanel } from "../../panels/HighlightExtractorPanel";
 import { InspectorSection } from "../shell/InspectorSection";
+import { useTranslation } from "../../../../hooks/use-translation";
 
 export interface AiTabProps {
   clipId: string;
@@ -69,12 +70,14 @@ export const AiTab: React.FC<AiTabProps> = ({
   audioEnhanced,
   isApplyingSelectedClipEffect,
 }) => {
+  const { t } = useTranslation();
+
   return (
     <>
       {clipType === "video" && (
         <>
           <InspectorSection
-            title="AI Auto-Captions"
+            title={t("inspector.sections.auto_captions", "AI Auto-Captions")}
             sectionId="auto-captions"
             defaultOpen={false}
           >
@@ -88,7 +91,7 @@ export const AiTab: React.FC<AiTabProps> = ({
               />
               <div>
                 <label className="text-[10px] text-text-secondary block mb-1">
-                  Animation Style
+                  {t("inspector.captions.animation_style", "Animation Style")}
                 </label>
                 <Select
                   value={defaultAnimationStyle}
@@ -112,7 +115,7 @@ export const AiTab: React.FC<AiTabProps> = ({
 
               <div>
                 <label className="text-[10px] text-text-secondary block mb-1">
-                  Target Language
+                  {t("inspector.captions.target_language", "Target Language")}
                 </label>
                 <Select
                   value={targetLanguage}
@@ -120,12 +123,12 @@ export const AiTab: React.FC<AiTabProps> = ({
                   disabled={isTranscribing}
                 >
                   <SelectTrigger className="w-full bg-background-secondary border-border text-text-primary text-[11px]">
-                    <SelectValue placeholder="Original (no translation)" />
+                    <SelectValue placeholder={t("inspector.captions.original", "Original (no translation)")} />
                   </SelectTrigger>
                   <SelectContent className="bg-background-secondary border-border">
-                    <SelectItem value="none">Original (no translation)</SelectItem>
+                    <SelectItem value="none">{t("inspector.captions.original", "Original (no translation)")}</SelectItem>
                     <SelectGroup>
-                      <SelectLabel className="text-[10px]">Translate to</SelectLabel>
+                      <SelectLabel className="text-[10px]">{t("inspector.captions.translate_to", "Translate to")}</SelectLabel>
                       <SelectItem value="en">English</SelectItem>
                       <SelectItem value="es">Spanish</SelectItem>
                       <SelectItem value="fr">French</SelectItem>
@@ -162,7 +165,7 @@ export const AiTab: React.FC<AiTabProps> = ({
                     <div
                       className={`h-full transition-all duration-300 ${
                         transcriptionProgress.phase === "error"
-                          ? "bg-red-500"
+                           ? "bg-red-500"
                           : transcriptionProgress.phase === "complete"
                             ? "bg-green-500"
                             : "bg-primary"
@@ -178,7 +181,7 @@ export const AiTab: React.FC<AiTabProps> = ({
                   className="w-full py-2 bg-primary hover:bg-primary/80 text-black rounded-lg text-[11px] font-medium transition-all flex items-center justify-center gap-2"
                 >
                   <Captions size={14} />
-                  Generate Captions
+                  {t("inspector.captions.btn_generate", "Generate Captions")}
                 </button>
               )}
               <button
@@ -187,7 +190,7 @@ export const AiTab: React.FC<AiTabProps> = ({
                 className="w-full py-2 bg-background-tertiary hover:bg-background-tertiary/80 border border-border text-text-primary rounded-lg text-[11px] font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 <Upload size={13} />
-                Import SRT File
+                {t("inspector.captions.btn_import", "Import SRT File")}
               </button>
             </div>
           </InspectorSection>
@@ -196,7 +199,7 @@ export const AiTab: React.FC<AiTabProps> = ({
 
       {clipType === "video" && (
         <InspectorSection
-          title="Auto Reframe"
+          title={t("inspector.sections.auto_reframe", "Auto Reframe")}
           sectionId="auto-reframe"
           defaultOpen={false}
         >
@@ -206,7 +209,7 @@ export const AiTab: React.FC<AiTabProps> = ({
 
       {showAudioEffects && (
         <InspectorSection
-          title="Beat-Synced Auto-Edit"
+          title={t("inspector.sections.auto_edit", "Beat-Synced Auto-Edit")}
           sectionId="auto-edit"
           defaultOpen={false}
         >
@@ -216,7 +219,7 @@ export const AiTab: React.FC<AiTabProps> = ({
 
       {showAudioEffects && (
         <InspectorSection
-          title="AI Highlights"
+          title={t("inspector.sections.ai_highlights", "AI Highlights")}
           sectionId="ai-highlights"
           defaultOpen={false}
         >
@@ -228,7 +231,7 @@ export const AiTab: React.FC<AiTabProps> = ({
         <div className="border border-primary/30 bg-primary/5 rounded-xl p-4 relative overflow-hidden">
           <div className="flex items-center gap-2 text-primary mb-3">
             <Zap size={14} />
-            <span className="text-xs font-bold">Quick Actions</span>
+            <span className="text-xs font-bold">{t("inspector.quick_actions.title", "Quick Actions")}</span>
           </div>
           <div className="space-y-2">
             {showVideoControls && (
@@ -241,7 +244,7 @@ export const AiTab: React.FC<AiTabProps> = ({
                     : "bg-background-tertiary hover:bg-primary hover:text-white border-border hover:border-primary"
                 }`}
               >
-                Remove Background
+                {t("inspector.quick_actions.remove_bg", "Remove Background")}
               </button>
             )}
             {showAudioEffects && (
@@ -259,12 +262,12 @@ export const AiTab: React.FC<AiTabProps> = ({
                 {isEnhancingAudio ? (
                   <>
                     <Loader2 size={12} className="animate-spin" />
-                    Cleaning up...
+                    {t("inspector.quick_actions.cleaning", "Cleaning up...")}
                   </>
                 ) : audioEnhanced ? (
-                  "✓ Noise Reduced"
+                  t("inspector.quick_actions.noise_reduced", "✓ Noise Reduced")
                 ) : (
-                  "Quick Dialogue Cleanup"
+                  t("inspector.quick_actions.dialogue_cleanup", "Quick Dialogue Cleanup")
                 )}
               </button>
             )}
@@ -278,7 +281,9 @@ export const AiTab: React.FC<AiTabProps> = ({
                     : "bg-background-tertiary hover:bg-primary hover:text-white border-border hover:border-primary"
                 }`}
               >
-                {isApplyingSelectedClipEffect ? "Applying..." : "Auto-Color"}
+                {isApplyingSelectedClipEffect
+                  ? t("inspector.quick_actions.applying", "Applying...")
+                  : t("inspector.quick_actions.auto_color", "Auto-Color")}
               </button>
             )}
           </div>
@@ -287,3 +292,4 @@ export const AiTab: React.FC<AiTabProps> = ({
     </>
   );
 };
+

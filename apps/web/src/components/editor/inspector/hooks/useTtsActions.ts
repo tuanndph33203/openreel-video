@@ -3,7 +3,7 @@ import type { TextClip } from "@openreel/core";
 import type { TtsProvider } from "../../../../stores/settings-store";
 import { useProjectStore } from "../../../../stores/project-store";
 import { useTtsAudioStore } from "../../../../stores/tts-store";
-import { PIPER_VOICES } from "../tts-constants";
+import { PIPER_VOICES, VIENEU_VOICES } from "../tts-constants";
 import type { ElevenLabsVoice } from "../tts-types";
 
 interface UseTtsActionsOptions {
@@ -132,7 +132,7 @@ export function useTtsActions(options: UseTtsActionsOptions): UseTtsActionsRetur
       return PIPER_VOICES.find((v) => v.id === selectedVoice)?.name ?? "TTS";
     }
     if (provider === "vieneu") {
-      return "VieNeu-TTS";
+      return VIENEU_VOICES.find((v) => v.id === selectedVoice)?.name ?? "VieNeu-TTS";
     }
     const fav = favoriteVoices.find((v) => v.voiceId === selectedVoice);
     if (fav) return fav.name;

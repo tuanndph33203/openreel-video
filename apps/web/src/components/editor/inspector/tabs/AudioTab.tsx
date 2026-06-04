@@ -7,6 +7,8 @@ import {
   AudioDuckingSection,
 } from "../";
 import { InspectorSection } from "../shell/InspectorSection";
+import { LabeledSlider } from "@openreel/ui";
+import { useTranslation } from "../../../../hooks/use-translation";
 
 export interface AudioTabProps {
   clipId: string;
@@ -14,6 +16,8 @@ export interface AudioTabProps {
   showAudioEffects: boolean;
   noiseReductionSectionTitle: string;
   selectedNoiseReductionEffect: unknown;
+  volume: number;
+  onChangeVolume: (vol: number) => void;
 }
 
 export const AudioTab: React.FC<AudioTabProps> = ({
@@ -22,12 +26,41 @@ export const AudioTab: React.FC<AudioTabProps> = ({
   showAudioEffects,
   noiseReductionSectionTitle,
   selectedNoiseReductionEffect,
+  volume,
+  onChangeVolume,
 }) => {
+  const { t } = useTranslation();
+
   return (
     <>
       {showAudioEffects && (
         <InspectorSection
-          title="Auto Cut Silence"
+          title={t("inspector.sections.volume", "Volume")}
+          sectionId="volume"
+          defaultOpen={true}
+        >
+          <div className="space-y-3 p-3 bg-background-secondary rounded-lg border border-border/50">
+            <LabeledSlider
+              label={t("inspector.sections.volume", "Volume")}
+              value={Math.round(volume * 100)}
+              onChange={onChangeVolume}
+              min={0}
+              max={400}
+              step={1}
+              unit="%"
+            />
+            <div className="flex justify-between text-[10px] text-text-muted mt-1 px-1">
+              <span>{t("inspector.quick_actions.mute", "Mute")}</span>
+              <span>100% ({t("inspector.quick_actions.normal", "Normal")})</span>
+              <span>400% ({t("inspector.quick_actions.boost", "Boost")})</span>
+            </div>
+          </div>
+        </InspectorSection>
+      )}
+
+      {showAudioEffects && (
+        <InspectorSection
+          title={t("inspector.sections.cut_silence", "Auto Cut Silence")}
           sectionId="auto-cut-silence"
           defaultOpen={false}
         >
@@ -35,7 +68,11 @@ export const AudioTab: React.FC<AudioTabProps> = ({
         </InspectorSection>
       )}
       {clipType === "audio" && (
-        <InspectorSection title="Beat Sync" sectionId="beat-sync" defaultOpen={false}>
+        <InspectorSection
+          title={t("inspector.sections.beat_sync", "Beat Sync")}
+          sectionId="beat-sync"
+          defaultOpen={false}
+        >
           <AudioTextSyncPanel clipId={clipId} />
         </InspectorSection>
       )}
@@ -51,7 +88,7 @@ export const AudioTab: React.FC<AudioTabProps> = ({
       {showAudioEffects && (
         <>
           <InspectorSection
-            title="Audio Effects"
+            title={t("inspector.sections.audio_effects", "Audio Effects")}
             sectionId="audio-effects"
             defaultOpen={false}
           >
@@ -61,7 +98,7 @@ export const AudioTab: React.FC<AudioTabProps> = ({
       )}
       {showAudioEffects && (
         <InspectorSection
-          title="Audio Ducking"
+          title={t("inspector.sections.audio_ducking", "Audio Ducking")}
           sectionId="audio-ducking"
           defaultOpen={false}
         >
@@ -71,3 +108,5 @@ export const AudioTab: React.FC<AudioTabProps> = ({
     </>
   );
 };
+
+export default AudioTab;

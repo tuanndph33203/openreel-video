@@ -574,6 +574,9 @@ export const vi = {
     update: "Cập nhật",
     on: "Bật",
     off: "Tắt",
+    enable: "Kích hoạt",
+    key_color: "Màu chính (Key Color)",
+    tolerance: "Độ dung sai (Tolerance)",
     err_remove_recipe: "Không thể gỡ bỏ công thức",
     err_remove_recipe_desc: "Không thể gỡ bỏ công thức này khỏi clip.",
     sections: {
@@ -594,6 +597,7 @@ export const vi = {
       masking: "Che phủ (Masking)",
       nested_sequences: "Sequence lồng nhau",
       adjustment_layers: "Lớp điều chỉnh (Adjustment)",
+      color_grading: "Chỉnh màu (Color Grading)",
       volume: "Âm lượng",
       text_properties: "Thuộc tính Văn bản",
       shape_properties: "Thuộc tính Hình khối",
@@ -626,6 +630,7 @@ export const vi = {
       original: "Gốc (không dịch)",
       translate_to: "Dịch sang",
       btn_generate: "Tạo phụ đề tự động",
+      btn_import: "Nhập tệp SRT",
       preparing: "Đang chuẩn bị âm thanh...",
       added_count: "Đã thêm {{count}} phụ đề"
     },
@@ -641,7 +646,8 @@ export const vi = {
       flip_v: "Dọc",
       fit_mode: "Chế độ vừa",
       fit: "Vừa khít (Fit)",
-      fill: "Đầy (Fill)"
+      fill: "Đầy (Fill)",
+      stretch: "Kéo giãn (Stretch)"
     },
     quick_actions: {
       title: "Hành động nhanh",
@@ -650,7 +656,10 @@ export const vi = {
       cleaning: "Đang làm sạch...",
       noise_reduced: "✓ Đã giảm tiếng ồn",
       auto_color: "Tự động chỉnh màu",
-      applying: "Đang áp dụng..."
+      applying: "Đang áp dụng...",
+      mute: "Tắt tiếng",
+      normal: "Bình thường",
+      boost: "Kích âm"
     },
     clips_selected: "Đã chọn {{count}} clip",
     text_clips_selected: "Đã chọn {{count}} clip chữ",

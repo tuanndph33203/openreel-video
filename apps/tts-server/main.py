@@ -21,6 +21,20 @@ print("Loading VieNeu-TTS model, please wait...")
 try:
     from vieneu import Vieneu
     tts = Vieneu()
+    
+    # Đăng ký giọng mẫu clone "custom_0525" từ file JSON
+    try:
+        custom_voice_path = r"C:\Users\PC\.gemini\antigravity\brain\c85adefd-d609-4080-a61c-edf44e53ef04\scratch\custom_voice.json"
+        if os.path.exists(custom_voice_path):
+            import json
+            with open(custom_voice_path, "r", encoding="utf-8") as f:
+                custom_data = json.load(f)
+            if hasattr(tts, "_preset_voices") and isinstance(tts._preset_voices, dict):
+                tts._preset_voices.update(custom_data)
+                print(f"[INFO] Registered custom cloned voice: {list(custom_data.keys())}")
+    except Exception as ex:
+        print(f"[WARNING] Failed to load custom cloned voice: {ex}")
+        
     print("[SUCCESS] VieNeu-TTS is ready!")
 except ImportError:
     print("[ERROR] vieneu not installed.")

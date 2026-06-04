@@ -12,8 +12,9 @@
     "windows": [
       {
         "title": "OpenReel Video Editor",
-        "width": 800,
-        "height": 600,
+        "width": 1280,
+        "height": 720,
+        "maximized": true,
         "resizable": true,
         "fullscreen": false,
         "additionalBrowserArgs": "--enable-unsafe-webgpu --enable-features=WebGPUService --ignore-gpu-blocklist --disable-gpu-driver-bug-workarounds"

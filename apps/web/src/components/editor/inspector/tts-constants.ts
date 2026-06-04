@@ -23,6 +23,7 @@ export const VIENEU_VOICES: Voice[] = [
   { id: "Doan", name: "Nữ dịu dàng (Đoan)", gender: "female", language: "vi-VN", previewUrl: "/voices/doan.wav" },
   { id: "Ly", name: "Nữ ấm áp (Ly)", gender: "female", language: "vi-VN", previewUrl: "/voices/ly.wav" },
   { id: "Ngoc", name: "Nữ trong sáng (Ngọc)", gender: "female", language: "vi-VN", previewUrl: "/voices/ngoc.wav" },
+  { id: "custom_0525", name: "Giọng bé", gender: "female", language: "vi-VN" },
 ];
 
 export const ENHANCE_SYSTEM_PROMPT = `You are a professional voice director transforming text into expressive, emotionally rich scripts for ElevenLabs v3 TTS. Your goal is to turn narration into performance.

@@ -6,13 +6,21 @@ export function isTauri(): boolean {
 
 export function createMediaBunnySource(
   mediabunny: any,
-  mediaItem: { filePath?: string; blob?: Blob | null; metadata?: { fileSize?: number } },
+  mediaItem: { filePath?: string; blob?: Blob | null; metadata?: { fileSize?: number } } | Blob | File,
 ) {
   const { BlobSource, StreamSource } = mediabunny;
 
-  if (isTauri() && mediaItem.filePath) {
-    const filePath = mediaItem.filePath;
-    const fileSize = mediaItem.metadata?.fileSize || mediaItem.blob?.size || 0;
+  if (!mediaItem) {
+    return new BlobSource(null);
+  }
+
+  if (mediaItem instanceof Blob || (typeof (mediaItem as any).arrayBuffer === "function")) {
+    return new BlobSource(mediaItem);
+  }
+
+  if (isTauri() && (mediaItem as any).filePath) {
+    const filePath = (mediaItem as any).filePath;
+    const fileSize = (mediaItem as any).metadata?.fileSize || (mediaItem as any).blob?.size || 0;
 
     return new StreamSource({
       getSize: () => fileSize,
@@ -32,5 +40,6 @@ export function createMediaBunnySource(
     });
   }
 
-  return new BlobSource(mediaItem.blob);
+  const blob = (mediaItem as any).blob !== undefined ? (mediaItem as any).blob : null;
+  return new BlobSource(blob);
 }

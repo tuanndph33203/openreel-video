@@ -1540,6 +1540,7 @@ export class VideoEngine {
       bitmap = await this.decodeFrameWithVideoElement(
         mediaItem.id,
         mediaItem.blob,
+        mediaItem.filePath,
         sourceTime,
         width,
         height,
@@ -1555,7 +1556,7 @@ export class VideoEngine {
     _settings: Project["settings"],
     width: number,
     height: number,
-    ctx: OffscreenCanvasRenderingContext2D,
+    ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
   ): Promise<Set<string>> {
     const rendered = new Set<string>();
 

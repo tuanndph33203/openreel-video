@@ -574,6 +574,9 @@ export const en = {
     update: "Update",
     on: "On",
     off: "Off",
+    enable: "Enable",
+    key_color: "Key Color",
+    tolerance: "Tolerance",
     err_remove_recipe: "Could not remove recipe",
     err_remove_recipe_desc: "The recipe could not be removed from this clip.",
     sections: {
@@ -594,6 +597,7 @@ export const en = {
       masking: "Masking",
       nested_sequences: "Nested Sequences",
       adjustment_layers: "Adjustment Layers",
+      color_grading: "Color Grading",
       volume: "Volume",
       text_properties: "Text Properties",
       shape_properties: "Shape Properties",
@@ -626,6 +630,7 @@ export const en = {
       original: "Original (no translation)",
       translate_to: "Translate to",
       btn_generate: "Generate Captions",
+      btn_import: "Import SRT File",
       preparing: "Preparing audio...",
       added_count: "Added {{count}} subtitles"
     },
@@ -641,7 +646,8 @@ export const en = {
       flip_v: "Vertical",
       fit_mode: "Fit Mode",
       fit: "Fit",
-      fill: "Fill"
+      fill: "Fill",
+      stretch: "Stretch"
     },
     quick_actions: {
       title: "Quick Actions",
@@ -650,7 +656,10 @@ export const en = {
       cleaning: "Cleaning up...",
       noise_reduced: "✓ Noise Reduced",
       auto_color: "Auto-Color",
-      applying: "Applying..."
+      applying: "Applying...",
+      mute: "Mute",
+      normal: "Normal",
+      boost: "Boost"
     },
     clips_selected: "{{count}} clips selected",
     text_clips_selected: "{{count}} text clips selected",
