@@ -11,6 +11,13 @@ export interface VideoInsights {
   }>;
 }
 
+function getProxyService(provider: "openai" | "anthropic" | "gemini", customBaseUrl?: string): string {
+  if (provider === "openai" && customBaseUrl?.includes("integrate.api.nvidia.com")) {
+    return "nvidia";
+  }
+  return provider;
+}
+
 export function buildInsightsSystemPrompt(targetLanguages: string[] = ["vi"]): string {
   const languagesList = targetLanguages.join(", ");
   const seoStructure = targetLanguages.map(lang => `
@@ -71,7 +78,8 @@ export async function generateVideoInsights(
   }
 
   const provider = aiConfig.provider;
-  const url = `/api/proxy/${provider}${(provider === 'openai' || provider === 'gemini') ? '/chat/completions' : '/messages'}`;
+  const proxyService = getProxyService(provider, aiConfig.customBaseUrl);
+  const url = `/api/proxy/${proxyService}${(provider === 'openai' || provider === 'gemini') ? '/chat/completions' : '/messages'}`;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'x-proxy-api-key': aiConfig.apiKey

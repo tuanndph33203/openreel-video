@@ -7,6 +7,7 @@ import { getMediaBridge, initializeMediaBridge } from "../../../bridges/media-br
 import { saveMediaBlob } from "../../../services/media-storage";
 import { OPENREEL_TRANSCRIBE_URL } from "../../../config/api-endpoints";
 import { toast } from "../../../stores/notification-store";
+import { resolveAiProviderConfig } from "../../../utils/ai-config";
 
 /** Delay helper */
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -135,18 +136,16 @@ export function useAutomationCallbacks() {
               glossary,
               temperature: config.aiTemperature !== undefined ? config.aiTemperature : undefined,
               translationBranch: config.translationBranch,
-              customBaseUrl:
-                config.aiProvider === "openai"
-                  ? customOpenAiBaseUrl
-                  : config.aiProvider === "anthropic"
-                    ? customAnthropicBaseUrl
-                    : customGeminiBaseUrl,
-              customModel:
-                config.aiProvider === "openai"
-                  ? customOpenAiModel
-                  : config.aiProvider === "anthropic"
-                    ? customAnthropicModel
-                    : customGeminiModel,
+              ...resolveAiProviderConfig({
+                provider: (config.aiProvider || "openai") as "openai" | "anthropic" | "gemini",
+                selectedModel: config.aiModel,
+                customOpenAiBaseUrl,
+                customAnthropicBaseUrl,
+                customGeminiBaseUrl,
+                customOpenAiModel,
+                customAnthropicModel,
+                customGeminiModel,
+              }),
             };
           }
         } catch (err) {

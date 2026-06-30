@@ -23,7 +23,7 @@ export const SERVICE_REGISTRY: readonly ServiceConfig[] = [
   {
     id: "openai",
     label: "OpenAI",
-    description: "GPT models for script generation and AI features (supports custom endpoints like Mimo, DeepSeek, OpenRouter)",
+    description: "GPT and OpenAI-compatible models for AI features (supports custom endpoints like Mimo, DeepSeek, OpenRouter, NVIDIA NIM)",
     docsUrl: "https://platform.openai.com/docs/api-reference",
   },
   {

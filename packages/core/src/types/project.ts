@@ -6,6 +6,7 @@ export interface AutomationConfig {
   targetLanguage?: string;
   translationMethod?: "google" | "ai";
   aiProvider?: "openai" | "anthropic" | "gemini";
+  aiModel?: string;
   aiTone?: string;
   videoContext?: string;
   glossaryText?: string;

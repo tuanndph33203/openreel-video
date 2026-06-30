@@ -74,7 +74,11 @@ export async function apiFetch(
 
   // Luôn đi qua cùng nguồn proxy /api/proxy/ để máy chủ Node.js/Cloudflare thực hiện cuộc gọi chéo miền
   // Giúp giải quyết triệt để lỗi mất tiêu đề Authorization do CORS preflight của trình duyệt
-  const url = `/api/proxy/${service}${path}`;
+  const proxyService =
+    service === "openai" && customBaseUrl.includes("integrate.api.nvidia.com")
+      ? "nvidia"
+      : service;
+  const url = `/api/proxy/${proxyService}${path}`;
   const proxyHeaders: Record<string, string> = {
     "x-proxy-api-key": apiKey,
     ...extraHeaders,

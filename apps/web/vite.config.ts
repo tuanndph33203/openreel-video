@@ -123,6 +123,10 @@ export default defineConfig({
                   baseUrl: "https://api.openai.com/v1",
                   authHeaders: (key) => ({ Authorization: `Bearer ${key}` }),
                 },
+                nvidia: {
+                  baseUrl: "https://integrate.api.nvidia.com/v1",
+                  authHeaders: (key) => ({ Authorization: `Bearer ${key}` }),
+                },
                 anthropic: {
                   baseUrl: "https://api.anthropic.com/v1",
                   authHeaders: (key) => ({

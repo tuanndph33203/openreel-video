@@ -30,6 +30,11 @@ const SERVICE_CONFIG: Record<string, ServiceConfig> = {
     allowedPaths: /^(chat\/completions|models)$/,
     authHeaders: (key) => ({ Authorization: `Bearer ${key}` }),
   },
+  nvidia: {
+    baseUrl: "https://integrate.api.nvidia.com/v1",
+    allowedPaths: /^(chat\/completions|models)$/,
+    authHeaders: (key) => ({ Authorization: `Bearer ${key}` }),
+  },
   anthropic: {
     baseUrl: "https://api.anthropic.com/v1",
     allowedPaths: /^(messages)$/,

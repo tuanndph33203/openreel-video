@@ -13,6 +13,13 @@ export interface TranslationSettings {
   translationBranch?: "A" | "B";
 }
 
+function getProxyService(provider: "openai" | "anthropic" | "gemini", customBaseUrl?: string): string {
+  if (provider === "openai" && customBaseUrl?.includes("integrate.api.nvidia.com")) {
+    return "nvidia";
+  }
+  return provider;
+}
+
 export interface BatchPayload {
   sourceLanguage: string;
   targetLanguage: string;
@@ -1116,7 +1123,8 @@ export class TranscriptionService {
     const textSubtitles = bestSubtitles.filter(s => s.text && s.text.trim().length > 0);
     if (textSubtitles.length === 0) return bestSubtitles;
 
-    const url = `/api/proxy/${provider}${(provider === 'openai' || provider === 'gemini') ? '/chat/completions' : '/messages'}`;
+    const proxyService = getProxyService(provider, aiConfig.customBaseUrl);
+    const url = `/api/proxy/${proxyService}${(provider === 'openai' || provider === 'gemini') ? '/chat/completions' : '/messages'}`;
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'x-proxy-api-key': aiConfig.apiKey
@@ -1270,7 +1278,8 @@ export class TranscriptionService {
     const textSubtitles = subtitles.filter(s => s.text && s.text.trim().length > 0);
     if (textSubtitles.length === 0) return subtitles;
 
-    const url = `/api/proxy/${provider}${(provider === 'openai' || provider === 'gemini') ? '/chat/completions' : '/messages'}`;
+    const proxyService = getProxyService(provider, aiConfig.customBaseUrl);
+    const url = `/api/proxy/${proxyService}${(provider === 'openai' || provider === 'gemini') ? '/chat/completions' : '/messages'}`;
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'x-proxy-api-key': aiConfig.apiKey

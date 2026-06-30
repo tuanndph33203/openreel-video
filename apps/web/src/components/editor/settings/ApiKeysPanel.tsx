@@ -29,6 +29,10 @@ import {
 import { MasterPasswordDialog } from "./MasterPasswordDialog";
 import { toast } from "../../../stores/notification-store";
 import { useTranslation } from "../../../hooks/use-translation";
+import {
+  NVIDIA_OPENAI_BASE_URL,
+  NVIDIA_QWEN3_NEXT_MODEL,
+} from "../../../utils/ai-config";
 
 export const ApiKeysPanel: React.FC = () => {
   const {
@@ -330,6 +334,24 @@ export const ApiKeysPanel: React.FC = () => {
 
               {stored.id === "openai" && (
                 <div className="mt-3 space-y-3">
+                  <div className="flex items-center justify-between gap-2 rounded-md border border-border/60 bg-background-secondary/40 px-3 py-2">
+                    <div className="text-[10px] text-text-muted">
+                      NVIDIA Qwen preset for subtitle translation
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-[10px]"
+                      onClick={() => {
+                        setCustomOpenAiBaseUrl(NVIDIA_OPENAI_BASE_URL);
+                        setCustomOpenAiModel(NVIDIA_QWEN3_NEXT_MODEL);
+                        toast.success("Applied NVIDIA Qwen preset");
+                      }}
+                    >
+                      Use preset
+                    </Button>
+                  </div>
                   <div className="space-y-1">
                     <label className="block text-[11px] font-medium text-text-secondary">
                       {t("api_keys.custom_endpoint_base")}
@@ -338,7 +360,7 @@ export const ApiKeysPanel: React.FC = () => {
                       type="text"
                       value={customOpenAiBaseUrl}
                       onChange={(e) => setCustomOpenAiBaseUrl(e.target.value)}
-                      placeholder="e.g. https://api.openai.com/v1 or custom proxy endpoint"
+                      placeholder="e.g. https://api.openai.com/v1, https://integrate.api.nvidia.com/v1"
                       className="font-mono text-xs"
                     />
                     <p className="text-[10px] text-text-muted">
@@ -353,7 +375,7 @@ export const ApiKeysPanel: React.FC = () => {
                       type="text"
                       value={customOpenAiModel}
                       onChange={(e) => setCustomOpenAiModel(e.target.value)}
-                      placeholder="e.g. mimo-v2.5, deepseek-chat (leave blank for auto-detect)"
+                      placeholder="e.g. mimo-v2.5, qwen/qwen3-next-80b-a3b-instruct, deepseek-chat"
                       className="font-mono text-xs"
                     />
                     <p className="text-[10px] text-text-muted">

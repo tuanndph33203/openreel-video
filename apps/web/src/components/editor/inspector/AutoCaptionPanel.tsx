@@ -39,6 +39,13 @@ import { toast } from "../../../stores/notification-store";
 import { useElevenLabsApi } from "./hooks/useElevenLabsApi";
 import { isSessionUnlocked, getSecret } from "../../../services/secure-storage";
 import { useSettingsStore, type TtsProvider } from "../../../stores/settings-store";
+import {
+  getDefaultModelForProvider,
+  NVIDIA_OPENAI_BASE_URL,
+  NVIDIA_QWEN3_NEXT_MODEL,
+  resolveAiProviderConfig,
+  SETTINGS_CUSTOM_MODEL,
+} from "../../../utils/ai-config";
 
 const LANGUAGE_OPTIONS = [
   { code: "none", name: "Auto detect" },
@@ -254,6 +261,15 @@ export const AutoCaptionPanel: React.FC = () => {
         ? "gemini"
         : "openai"
   );
+  const [aiModel, setAiModel] = useState<string>(
+    getDefaultModelForProvider(
+      defaultLlmProvider === "anthropic"
+        ? "anthropic"
+        : defaultLlmProvider === "gemini"
+          ? "gemini"
+          : "openai"
+    )
+  );
   const [aiTone, setAiTone] = useState<string>("natural and fluent");
   const [videoContext, setVideoContext] = useState<string>("");
   const [glossaryText, setGlossaryText] = useState<string>("");
@@ -296,6 +312,11 @@ export const AutoCaptionPanel: React.FC = () => {
         if (config.animationStyle !== undefined) setAnimationStyle(config.animationStyle as CaptionAnimationStyle);
         if (config.translationMethod !== undefined) setTranslationMethod(config.translationMethod);
         if (config.aiProvider !== undefined) setAiProvider(config.aiProvider);
+        if (config.aiModel !== undefined) {
+          setAiModel(config.aiModel);
+        } else if (config.aiProvider !== undefined) {
+          setAiModel(getDefaultModelForProvider(config.aiProvider));
+        }
         if (config.aiTone !== undefined) setAiTone(config.aiTone);
         if (config.videoContext !== undefined) setVideoContext(config.videoContext);
         if (config.glossaryText !== undefined) setGlossaryText(config.glossaryText);
@@ -662,18 +683,16 @@ export const AutoCaptionPanel: React.FC = () => {
           tone: aiTone,
           videoContext: videoContext.trim() || undefined,
           translationBranch,
-          customBaseUrl:
-            aiProvider === "openai"
-              ? customOpenAiBaseUrl
-              : aiProvider === "anthropic"
-                ? customAnthropicBaseUrl
-                : customGeminiBaseUrl,
-          customModel:
-            aiProvider === "openai"
-              ? customOpenAiModel
-              : aiProvider === "anthropic"
-                ? customAnthropicModel
-                : customGeminiModel,
+          ...resolveAiProviderConfig({
+            provider: aiProvider,
+            selectedModel: aiModel,
+            customOpenAiBaseUrl,
+            customAnthropicBaseUrl,
+            customGeminiBaseUrl,
+            customOpenAiModel,
+            customAnthropicModel,
+            customGeminiModel,
+          }),
         };
       }
 
@@ -725,8 +744,17 @@ export const AutoCaptionPanel: React.FC = () => {
     targetLanguage,
     translationMethod,
     aiProvider,
+    aiModel,
     aiTone,
     videoContext,
+    translationBranch,
+    clearCaptions,
+    customOpenAiBaseUrl,
+    customAnthropicBaseUrl,
+    customGeminiBaseUrl,
+    customOpenAiModel,
+    customAnthropicModel,
+    customGeminiModel,
   ]);
 
   return (
@@ -856,8 +884,10 @@ export const AutoCaptionPanel: React.FC = () => {
                   <Select
                     value={aiProvider}
                     onValueChange={(val: "openai" | "anthropic" | "gemini") => {
+                      const nextModel = getDefaultModelForProvider(val);
                       setAiProvider(val);
-                      saveAutomationConfig({ aiProvider: val });
+                      setAiModel(nextModel);
+                      saveAutomationConfig({ aiProvider: val, aiModel: nextModel });
                     }}
                     disabled={isTranscribing}
                   >
@@ -871,6 +901,69 @@ export const AutoCaptionPanel: React.FC = () => {
                     </SelectContent>
                   </Select>
                 </div>
+
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[10px] text-text-secondary">AI Model</span>
+                  <Select
+                    value={aiModel}
+                    onValueChange={(val: string) => {
+                      setAiModel(val);
+                      saveAutomationConfig({ aiModel: val });
+                    }}
+                    disabled={isTranscribing}
+                  >
+                    <SelectTrigger className="w-auto min-w-[180px] bg-background-secondary border-border text-text-primary text-[10px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-background-secondary border-border">
+                      {aiProvider === "openai" && (
+                        <>
+                          <SelectItem value="gpt-4o-mini">OpenAI GPT-4o Mini</SelectItem>
+                          <SelectItem value="mimo-v2.5">Mimo v2.5</SelectItem>
+                          <SelectItem value={NVIDIA_QWEN3_NEXT_MODEL}>NVIDIA Qwen3 Next 80B</SelectItem>
+                          <SelectItem value={SETTINGS_CUSTOM_MODEL}>
+                            Custom from Settings
+                          </SelectItem>
+                        </>
+                      )}
+                      {aiProvider === "anthropic" && (
+                        <>
+                          <SelectItem value="claude-3-5-haiku-20241022">Claude 3.5 Haiku</SelectItem>
+                          <SelectItem value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet</SelectItem>
+                          <SelectItem value={SETTINGS_CUSTOM_MODEL}>
+                            Custom from Settings
+                          </SelectItem>
+                        </>
+                      )}
+                      {aiProvider === "gemini" && (
+                        <>
+                          <SelectItem value="gemini-1.5-flash">Gemini 1.5 Flash</SelectItem>
+                          <SelectItem value="gemini-1.5-pro">Gemini 1.5 Pro</SelectItem>
+                          <SelectItem value="gemini-2.0-flash">Gemini 2.0 Flash</SelectItem>
+                          <SelectItem value={SETTINGS_CUSTOM_MODEL}>
+                            Custom from Settings
+                          </SelectItem>
+                        </>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {aiProvider === "openai" && aiModel === NVIDIA_QWEN3_NEXT_MODEL && (
+                  <div className="flex items-start gap-1.5 p-1.5 bg-primary/5 rounded border border-primary/20 mt-1">
+                    <Sparkles size={10} className="text-primary shrink-0 mt-0.5" />
+                    <p className="text-[9px] text-text-secondary leading-tight">
+                      NVIDIA preset uses the OpenAI-compatible endpoint
+                      {" "}
+                      <code className="font-mono">{NVIDIA_OPENAI_BASE_URL}</code>
+                      {" "}
+                      with model
+                      {" "}
+                      <code className="font-mono">{NVIDIA_QWEN3_NEXT_MODEL}</code>.
+                      Save your NVIDIA API key in Settings &gt; API Keys &gt; OpenAI.
+                    </p>
+                  </div>
+                )}
 
                 {/* AI Tone */}
                 <div className="flex items-center justify-between gap-3">
