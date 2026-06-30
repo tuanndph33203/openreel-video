@@ -1,4 +1,4 @@
-import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { invoke, convertFileSrc, type InvokeArgs } from "@tauri-apps/api/core";
 
 /**
  * Checks if the application is running inside the Tauri native desktop wrapper.
@@ -24,7 +24,7 @@ export function getMediaSourceUrl(mediaItem: { filePath?: string; blob?: Blob | 
 /**
  * Safe invoker for Tauri native commands.
  */
-export async function invokeTauri<T>(cmd: string, args?: Record<string, any>): Promise<T> {
+export async function invokeTauri<T>(cmd: string, args?: InvokeArgs): Promise<T> {
   if (!isTauri()) {
     throw new Error("Tauri native environment not detected.");
   }
@@ -197,4 +197,3 @@ export async function tauriGenerateProxy(filePath: string, proxyPath: string): P
     throw err;
   }
 }
-

@@ -289,6 +289,40 @@ export class VideoEngine {
     }
   }
 
+  private async decodeFrameWithNativeThumbnail(
+    filePath: string,
+    time: number,
+    width: number,
+    mediaLabel: string,
+  ): Promise<ImageBitmap | null> {
+    if (!isTauri() || !filePath) {
+      return null;
+    }
+
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const base64Data = await invoke<string>("generate_thumbnail", {
+        path: filePath,
+        time: Math.max(0, time),
+        width: Math.max(1, Math.round(width)),
+      });
+      const img = new Image();
+      img.src = base64Data;
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () =>
+          reject(new Error(`Failed to load native thumbnail for ${mediaLabel}`));
+      });
+      return await createImageBitmap(img);
+    } catch (error) {
+      console.warn(
+        `[VideoEngine] Native FFmpeg frame decode failed for ${mediaLabel}:`,
+        error,
+      );
+      return null;
+    }
+  }
+
   private interpFrameCache: Map<string, { bitmap: ImageBitmap; time: number }> =
     new Map();
   private static readonly INTERP_FRAME_CACHE_MAX = 2;
@@ -343,16 +377,25 @@ export class VideoEngine {
 
       const cacheKey1 = `${mediaItem.id}:${timeBefore.toFixed(4)}`;
       const cacheKey2 = `${mediaItem.id}:${timeAfter.toFixed(4)}`;
+      const useNativeExportDecode =
+        this.exportMode && isTauri() && Boolean(mediaItem.filePath);
 
       let frame1 = this.getCachedInterpFrame(cacheKey1);
       if (!frame1) {
-        frame1 = await this.decodeFrameWithMediaBunny(
-          mediaItem,
-          timeBefore,
-          width,
-          height,
-          mediaItem.id,
-        );
+        frame1 = useNativeExportDecode
+          ? await this.decodeFrameWithNativeThumbnail(
+              mediaItem.filePath || "",
+              timeBefore,
+              width,
+              `${mediaItem.id}:before`,
+            )
+          : await this.decodeFrameWithMediaBunny(
+              mediaItem,
+              timeBefore,
+              width,
+              height,
+              mediaItem.id,
+            );
         if (frame1) {
           const clone = await createImageBitmap(frame1);
           this.setCachedInterpFrame(cacheKey1, clone);
@@ -361,13 +404,20 @@ export class VideoEngine {
 
       let frame2 = this.getCachedInterpFrame(cacheKey2);
       if (!frame2) {
-        frame2 = await this.decodeFrameWithMediaBunny(
-          mediaItem,
-          timeAfter,
-          width,
-          height,
-          mediaItem.id,
-        );
+        frame2 = useNativeExportDecode
+          ? await this.decodeFrameWithNativeThumbnail(
+              mediaItem.filePath || "",
+              timeAfter,
+              width,
+              `${mediaItem.id}:after`,
+            )
+          : await this.decodeFrameWithMediaBunny(
+              mediaItem,
+              timeAfter,
+              width,
+              height,
+              mediaItem.id,
+            );
         if (frame2) {
           const clone = await createImageBitmap(frame2);
           this.setCachedInterpFrame(cacheKey2, clone);
@@ -715,25 +765,19 @@ export class VideoEngine {
               bitmap = await createImageBitmap(cachedFrame.image);
             } else {
               this.cacheStats.misses++;
+              const vidstabForDecode = getVidstabEngine();
+              const useStabilizedBlob = vidstabForDecode.hasStabilized(clip.id);
+              const decodeTime = useStabilizedBlob
+                ? clipInfo.sourceTime - clip.inPoint
+                : clipInfo.sourceTime;
 
               if (isTauri() && mediaItem.filePath && mediaItem.metadata?.codec?.toLowerCase().includes("prores")) {
-                try {
-                  const { invoke } = await import("@tauri-apps/api/core");
-                  const base64Data = await invoke<string>("generate_thumbnail", {
-                    path: mediaItem.filePath,
-                    time: clipInfo.sourceTime,
-                    width: width,
-                  });
-                  const img = new Image();
-                  img.src = base64Data;
-                  await new Promise<void>((resolve, reject) => {
-                    img.onload = () => resolve();
-                    img.onerror = () => reject(new Error("Failed to load native ProRes frame"));
-                  });
-                  bitmap = await createImageBitmap(img);
-                } catch (proresErr) {
-                  console.warn("[VideoEngine] Native ProRes decode failed, falling back:", proresErr);
-                }
+                bitmap = await this.decodeFrameWithNativeThumbnail(
+                  mediaItem.filePath,
+                  clipInfo.sourceTime,
+                  width,
+                  mediaItem.id,
+                );
               }
 
               if (!bitmap && shouldInterpolate && mediaItem.metadata?.frameRate) {
@@ -748,26 +792,24 @@ export class VideoEngine {
               }
 
               if (!bitmap) {
-                const vidstabForDecode = getVidstabEngine();
-                const useStabilizedBlob = vidstabForDecode.hasStabilized(clip.id);
-                const decodeTime = useStabilizedBlob
-                  ? clipInfo.sourceTime - clip.inPoint
-                  : clipInfo.sourceTime;
-
-                bitmap = await this.decodeFrameWithMediaBunny(
-                  useStabilizedBlob ? vidstabForDecode.getStabilizedBlob(clip.id)! : mediaItem,
-                  decodeTime,
-                  width,
-                  height,
-                  useStabilizedBlob ? `stabilized:${clip.id}` : clipInfo.mediaId,
-                );
+                if (isTauri() && this.exportMode && !useStabilizedBlob && mediaItem.filePath) {
+                  bitmap = await this.decodeFrameWithNativeThumbnail(
+                    mediaItem.filePath,
+                    decodeTime,
+                    width,
+                    mediaItem.id,
+                  );
+                } else {
+                  bitmap = await this.decodeFrameWithMediaBunny(
+                    useStabilizedBlob ? vidstabForDecode.getStabilizedBlob(clip.id)! : mediaItem,
+                    decodeTime,
+                    width,
+                    height,
+                    useStabilizedBlob ? `stabilized:${clip.id}` : clipInfo.mediaId,
+                  );
+                }
               }
-              if (!bitmap) {
-                const vidstabForDecode = getVidstabEngine();
-                const useStabilizedBlob = vidstabForDecode.hasStabilized(clip.id);
-                const decodeTime = useStabilizedBlob
-                  ? clipInfo.sourceTime - clip.inPoint
-                  : clipInfo.sourceTime;
+              if (!bitmap && (!isTauri() || !this.exportMode || !mediaItem.filePath || useStabilizedBlob)) {
 
                 bitmap = await this.decodeFrameWithVideoElement(
                   useStabilizedBlob ? `stabilized:${clip.id}` : mediaItem.id,
@@ -780,12 +822,6 @@ export class VideoEngine {
               }
 
               if (!bitmap) {
-                const vidstabForDecode = getVidstabEngine();
-                const useStabilizedBlob = vidstabForDecode.hasStabilized(clip.id);
-                const decodeTime = useStabilizedBlob
-                  ? clipInfo.sourceTime - clip.inPoint
-                  : clipInfo.sourceTime;
-
                 if (!isTauri() && mediaItem.blob) {
                   try {
                     const { getFFmpegFallback } = await import("../media/ffmpeg-fallback");
@@ -1486,14 +1522,23 @@ export class VideoEngine {
     width: number,
     height: number,
   ): Promise<ImageBitmap | null> {
-    if (!mediaItem.blob) return null;
+    if (!mediaItem.blob && !mediaItem.filePath) return null;
 
     if (mediaItem.type === "image") {
       try {
-        if (isAnimatedGif(mediaItem.blob)) {
+        let imageBlob = mediaItem.blob;
+        if (!imageBlob && isTauri() && mediaItem.filePath) {
+          const { convertFileSrc } = await import("@tauri-apps/api/core");
+          const url = convertFileSrc(mediaItem.filePath);
+          const response = await fetch(url);
+          imageBlob = await response.blob();
+        }
+        if (!imageBlob) return null;
+
+        if (isAnimatedGif(imageBlob)) {
           let gifCache = this.gifFrameCache.get(mediaItem.id);
           if (!gifCache) {
-            const created = await createGifFrameCache(mediaItem.blob);
+            const created = await createGifFrameCache(imageBlob);
             if (created) {
               this.gifFrameCache.set(mediaItem.id, created);
               gifCache = created;
@@ -1507,7 +1552,7 @@ export class VideoEngine {
         }
         const cached = this.staticImageCache.get(mediaItem.id);
         if (cached) return cached;
-        const bitmap = await createImageBitmap(mediaItem.blob);
+        const bitmap = await createImageBitmap(imageBlob);
         this.staticImageCache.set(mediaItem.id, bitmap);
         return bitmap;
       } catch (error) {
@@ -1529,14 +1574,32 @@ export class VideoEngine {
       ),
     );
 
-    let bitmap = await this.decodeFrameWithMediaBunny(
-      mediaItem.blob,
-      sourceTime,
-      width,
-      height,
-      mediaItem.id,
-    );
-    if (!bitmap) {
+    const shouldUseNativeExportDecode =
+      isTauri() && this.exportMode && Boolean(mediaItem.filePath);
+
+    let bitmap = shouldUseNativeExportDecode
+      ? await this.decodeFrameWithNativeThumbnail(
+          mediaItem.filePath || "",
+          sourceTime,
+          width,
+          mediaItem.id,
+        )
+      : await this.decodeFrameWithMediaBunny(
+          mediaItem.blob ?? mediaItem,
+          sourceTime,
+          width,
+          height,
+          mediaItem.id,
+        );
+    if (!bitmap && !shouldUseNativeExportDecode) {
+      bitmap = await this.decodeFrameWithNativeThumbnail(
+        mediaItem.filePath || "",
+        sourceTime,
+        width,
+        mediaItem.id,
+      );
+    }
+    if (!bitmap && (!isTauri() || !this.exportMode || !mediaItem.filePath)) {
       bitmap = await this.decodeFrameWithVideoElement(
         mediaItem.id,
         mediaItem.blob,

@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useEffect, useMemo } from "react";
+import React, { useCallback, useState, useEffect, useMemo, useRef } from "react";
 import {
   ChevronDown,
   FileVideo,
@@ -53,6 +53,7 @@ import { useAutomationCallbacks } from "./hooks/useAutomationCallbacks";
 import { SettingsDialog } from "./settings/SettingsDialog";
 import { toast } from "../../stores/notification-store";
 import { isTauri, invokeTauri } from "../../bridges/tauri-bridge";
+import { exportVideoWithNativeBackend } from "../../services/native-export";
 import { useSettingsStore } from "../../stores/settings-store";
 import { useTranslation } from "../../hooks/use-translation";
 import { useAnalytics, AnalyticsEvents } from "../../hooks/useAnalytics";
@@ -203,6 +204,17 @@ export const Toolbar: React.FC = () => {
   });
   const [deviceProfile, setDeviceProfile] = useState<DeviceProfile | null>(null);
   const [exportEstimates, setExportEstimates] = useState<Map<string, TimeEstimate>>(new Map());
+  const nativeExportControllerRef = useRef<AbortController | null>(null);
+
+  const reportExportError = useCallback((error: unknown) => {
+    const message = error instanceof Error ? error.message : "Export failed";
+    setExportState((prev) => ({
+      ...prev,
+      isExporting: false,
+      error: message,
+    }));
+    toast.error("Export failed", message);
+  }, []);
 
   useEffect(() => {
     setGlobalExportState({
@@ -306,6 +318,62 @@ export const Toolbar: React.FC = () => {
       }
     },
     [getFullProject, track],
+  );
+
+  const runNativeExport = useCallback(
+    async (videoSettings: Partial<VideoExportSettings>, outputPath: string) => {
+      const fullProject = getFullProject();
+      const controller = new AbortController();
+      nativeExportControllerRef.current = controller;
+
+      try {
+        await exportVideoWithNativeBackend({
+          outputPath,
+          project: fullProject,
+          settings: videoSettings,
+          signal: controller.signal,
+          onProgress: ({ phase, progress, detail }) => {
+            setExportState((prev) => ({
+              ...prev,
+              progress: progress * 100,
+              phase:
+                phase === "complete"
+                  ? "Complete!"
+                  : detail
+                    ? `${phase}... ${detail}`
+                    : `${phase}...`,
+            }));
+          },
+        });
+
+        setExportState((prev) => ({ ...prev, complete: true, phase: "Saved!" }));
+        track(AnalyticsEvents.PROJECT_EXPORTED, {
+          format: videoSettings.format ?? "mp4",
+          codec: videoSettings.codec ?? "h264",
+          width: videoSettings.width ?? fullProject.settings.width,
+          height: videoSettings.height ?? fullProject.settings.height,
+          frameRate: videoSettings.frameRate ?? fullProject.settings.frameRate,
+          duration: fullProject.timeline?.duration ?? 0,
+        });
+      } finally {
+        nativeExportControllerRef.current = null;
+      }
+    },
+    [getFullProject, track],
+  );
+
+  const selectTauriSavePath = useCallback(
+    async (filename: string, ext: string): Promise<string> => {
+      const path = await invokeTauri<string | null>("select_save_file", {
+        suggestedName: filename,
+        extension: ext,
+      });
+      if (!path) {
+        throw new Error("Save picker cancelled");
+      }
+      return path;
+    },
+    [],
   );
 
   const showSavePicker = useCallback(async (filename: string, ext: string): Promise<FileSystemWritableFileStream> => {
@@ -479,7 +547,9 @@ export const Toolbar: React.FC = () => {
         return Promise.resolve();
       },
     } as unknown as FileSystemWritableFileStream;
-  }, []);  const handleExport = useCallback(
+  }, []);
+
+  const handleExport = useCallback(
     async (type: ExportType) => {
       setIsExportOpen(false);
 
@@ -564,17 +634,34 @@ export const Toolbar: React.FC = () => {
           };
 
           const preset = presets[type] ?? presets.mp4;
-          const writable = await showSavePicker(`${project.name || "export"}.${preset.ext}`, preset.ext);
 
-          setExportState({
-            isExporting: true,
-            progress: 0,
-            phase: "Initializing...",
-            error: null,
-            complete: false,
-          });
-
-          await runExport(preset.settings, preset.ext, writable);
+          if (isTauri()) {
+            const outputPath = await selectTauriSavePath(
+              `${project.name || "export"}.${preset.ext}`,
+              preset.ext,
+            );
+            setExportState({
+              isExporting: true,
+              progress: 0,
+              phase: "Initializing...",
+              error: null,
+              complete: false,
+            });
+            await runNativeExport(preset.settings, outputPath);
+          } else {
+            const writable = await showSavePicker(
+              `${project.name || "export"}.${preset.ext}`,
+              preset.ext,
+            );
+            setExportState({
+              isExporting: true,
+              progress: 0,
+              phase: "Initializing...",
+              error: null,
+              complete: false,
+            });
+            await runExport(preset.settings, preset.ext, writable);
+          }
         }
 
         setTimeout(() => {
@@ -584,17 +671,15 @@ export const Toolbar: React.FC = () => {
         if (error instanceof Error && error.name === "AbortError") {
           return;
         }
-        setExportState((prev) => ({
-          ...prev,
-          isExporting: false,
-          error: error instanceof Error ? error.message : "Export failed",
-        }));
+        reportExportError(error);
       }
     },
-    [project, track, runExport, showSavePicker],
+    [project, reportExportError, runExport, runNativeExport, selectTauriSavePath, showSavePicker],
   );
 
   const handleCancelExport = useCallback(() => {
+    nativeExportControllerRef.current?.abort();
+    nativeExportControllerRef.current = null;
     const engine = getExportEngine();
     engine.cancel();
     setExportState({
@@ -612,15 +697,6 @@ export const Toolbar: React.FC = () => {
 
       try {
         const ext = settings.format === "mov" ? "mov" : settings.format === "webm" ? "webm" : "mp4";
-        const writable = await showSavePicker(`${project.name || "export"}.${ext}`, ext);
-
-        setExportState({
-          isExporting: true,
-          progress: 0,
-          phase: "Initializing...",
-          error: null,
-          complete: false,
-        });
 
         const needsUpscaling =
           settings.width > project.settings.width ||
@@ -634,7 +710,30 @@ export const Toolbar: React.FC = () => {
               : undefined,
         };
 
-        await runExport(exportSettings, ext, writable);
+        if (isTauri()) {
+          const outputPath = await selectTauriSavePath(
+            `${project.name || "export"}.${ext}`,
+            ext,
+          );
+          setExportState({
+            isExporting: true,
+            progress: 0,
+            phase: "Initializing...",
+            error: null,
+            complete: false,
+          });
+          await runNativeExport(exportSettings, outputPath);
+        } else {
+          const writable = await showSavePicker(`${project.name || "export"}.${ext}`, ext);
+          setExportState({
+            isExporting: true,
+            progress: 0,
+            phase: "Initializing...",
+            error: null,
+            complete: false,
+          });
+          await runExport(exportSettings, ext, writable);
+        }
 
         track(AnalyticsEvents.PROJECT_EXPORTED, {
           format: settings.format,
@@ -654,14 +753,10 @@ export const Toolbar: React.FC = () => {
         if (error instanceof Error && error.name === "AbortError") {
           return;
         }
-        setExportState((prev) => ({
-          ...prev,
-          isExporting: false,
-          error: error instanceof Error ? error.message : "Export failed",
-        }));
+        reportExportError(error);
       }
     },
-    [project, track, runExport, showSavePicker],
+    [project, reportExportError, track, runExport, runNativeExport, selectTauriSavePath, showSavePicker],
   );
 
 
@@ -1027,8 +1122,13 @@ export const Toolbar: React.FC = () => {
             </button>
           </div>
         ) : exportState.error ? (
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md border border-status-error/40 bg-status-error/10 text-status-error text-[11px]">
-            <span className="max-w-[180px] truncate">{exportState.error}</span>
+          <div
+            className="inline-flex items-start gap-1.5 px-3 py-1 rounded-md border border-status-error/40 bg-status-error/10 text-status-error text-[11px] max-w-[420px]"
+            title={exportState.error}
+          >
+            <span className="max-w-[360px] whitespace-normal break-words leading-tight">
+              {exportState.error}
+            </span>
             <button
               onClick={() => setExportState((p) => ({ ...p, error: null }))}
               className="opacity-70 hover:opacity-100"

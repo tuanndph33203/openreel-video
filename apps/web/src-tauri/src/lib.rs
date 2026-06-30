@@ -1,6 +1,10 @@
-use std::process::Command;
+use std::collections::HashMap;
+use std::process::{Child, Command, Stdio};
 use std::fs::OpenOptions;
 use std::io::{Write, Seek, SeekFrom};
+use std::path::Path;
+use std::sync::{Mutex, OnceLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::Value;
 use rfd::FileDialog;
 
@@ -16,6 +20,159 @@ fn run_ffmpeg(args: Vec<String>) -> Result<String, String> {
   } else {
     Err(String::from_utf8_lossy(&output.stderr).into_owned())
   }
+}
+
+static FFMPEG_SESSIONS: OnceLock<Mutex<HashMap<String, Child>>> = OnceLock::new();
+static ACTIVE_FFMPEG_SESSION: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+
+fn get_ffmpeg_sessions() -> &'static Mutex<HashMap<String, Child>> {
+  FFMPEG_SESSIONS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn get_active_ffmpeg_session() -> &'static Mutex<Option<String>> {
+  ACTIVE_FFMPEG_SESSION.get_or_init(|| Mutex::new(None))
+}
+
+#[tauri::command]
+fn start_ffmpeg_session(session_id: String, args: Vec<String>) -> Result<(), String> {
+  let child = Command::new("ffmpeg")
+    .args(&args)
+    .stdin(Stdio::piped())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped())
+    .spawn()
+    .map_err(|e| format!("Failed to start ffmpeg session: {}", e))?;
+
+  let mut sessions = get_ffmpeg_sessions()
+    .lock()
+    .map_err(|_| "Failed to lock ffmpeg session registry".to_string())?;
+  sessions.insert(session_id.clone(), child);
+  let mut active = get_active_ffmpeg_session()
+    .lock()
+    .map_err(|_| "Failed to lock active ffmpeg session".to_string())?;
+  *active = Some(session_id);
+  Ok(())
+}
+
+#[tauri::command]
+fn write_active_ffmpeg_chunk(chunk: Vec<u8>) -> Result<(), String> {
+  let session_id = {
+    let active = get_active_ffmpeg_session()
+      .lock()
+      .map_err(|_| "Failed to lock active ffmpeg session".to_string())?;
+    active
+      .clone()
+      .ok_or_else(|| "No active ffmpeg session".to_string())?
+  };
+
+  write_ffmpeg_session_chunk(session_id, chunk)
+}
+
+#[tauri::command]
+fn write_ffmpeg_session_chunk(session_id: String, chunk: Vec<u8>) -> Result<(), String> {
+  let mut sessions = get_ffmpeg_sessions()
+    .lock()
+    .map_err(|_| "Failed to lock ffmpeg session registry".to_string())?;
+
+  let child = sessions
+    .get_mut(&session_id)
+    .ok_or_else(|| format!("FFmpeg session not found: {}", session_id))?;
+
+  let stdin = child
+    .stdin
+    .as_mut()
+    .ok_or_else(|| format!("FFmpeg stdin is closed for session {}", session_id))?;
+
+  stdin
+    .write_all(&chunk)
+    .map_err(|e| format!("Failed to write ffmpeg session chunk: {}", e))
+}
+
+#[tauri::command]
+fn finish_ffmpeg_session(session_id: String) -> Result<String, String> {
+  let child = {
+    let mut sessions = get_ffmpeg_sessions()
+      .lock()
+      .map_err(|_| "Failed to lock ffmpeg session registry".to_string())?;
+    sessions
+      .remove(&session_id)
+      .ok_or_else(|| format!("FFmpeg session not found: {}", session_id))?
+  };
+
+  let mut child = child;
+  child.stdin.take();
+  let output = child
+    .wait_with_output()
+    .map_err(|e| format!("Failed to finish ffmpeg session: {}", e))?;
+
+  if output.status.success() {
+    if let Ok(mut active) = get_active_ffmpeg_session().lock() {
+      if active.as_ref() == Some(&session_id) {
+        *active = None;
+      }
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+  } else {
+    if let Ok(mut active) = get_active_ffmpeg_session().lock() {
+      if active.as_ref() == Some(&session_id) {
+        *active = None;
+      }
+    }
+    Err(String::from_utf8_lossy(&output.stderr).into_owned())
+  }
+}
+
+#[tauri::command]
+fn finish_active_ffmpeg_session() -> Result<String, String> {
+  let session_id = {
+    let active = get_active_ffmpeg_session()
+      .lock()
+      .map_err(|_| "Failed to lock active ffmpeg session".to_string())?;
+    active
+      .clone()
+      .ok_or_else(|| "No active ffmpeg session".to_string())?
+  };
+
+  finish_ffmpeg_session(session_id)
+}
+
+#[tauri::command]
+fn abort_ffmpeg_session(session_id: String) -> Result<(), String> {
+  let child = {
+    let mut sessions = get_ffmpeg_sessions()
+      .lock()
+      .map_err(|_| "Failed to lock ffmpeg session registry".to_string())?;
+    sessions.remove(&session_id)
+  };
+
+  if let Some(mut child) = child {
+    let _ = child.kill();
+    let _ = child.wait();
+  }
+
+  if let Ok(mut active) = get_active_ffmpeg_session().lock() {
+    if active.as_ref() == Some(&session_id) {
+      *active = None;
+    }
+  }
+
+  Ok(())
+}
+
+#[tauri::command]
+fn abort_active_ffmpeg_session() -> Result<(), String> {
+  let session_id = {
+    let active = get_active_ffmpeg_session()
+      .lock()
+      .map_err(|_| "Failed to lock active ffmpeg session".to_string())?;
+    active.clone()
+  };
+
+  if let Some(session_id) = session_id {
+    abort_ffmpeg_session(session_id)?;
+  }
+
+  Ok(())
 }
 
 #[tauri::command]
@@ -186,6 +343,49 @@ fn write_export_chunk(path: String, chunk: Vec<u8>, position: u64) -> Result<(),
 }
 
 #[tauri::command]
+fn write_binary_file(path: String, bytes: Vec<u8>) -> Result<(), String> {
+  if let Some(parent) = Path::new(&path).parent() {
+    std::fs::create_dir_all(parent)
+      .map_err(|e| format!("Failed to create parent directory: {}", e))?;
+  }
+
+  std::fs::write(&path, bytes)
+    .map_err(|e| format!("Failed to write binary file: {}", e))
+}
+
+#[tauri::command]
+fn create_temp_dir(prefix: String) -> Result<String, String> {
+  let unique = SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .map_err(|e| format!("Failed to get system time: {}", e))?
+    .as_millis();
+
+  let dir = std::env::temp_dir().join(format!("{}-{}", prefix, unique));
+  std::fs::create_dir_all(&dir)
+    .map_err(|e| format!("Failed to create temp directory: {}", e))?;
+
+  Ok(dir.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+fn remove_path(path: String) -> Result<(), String> {
+  let path_ref = Path::new(&path);
+  if !path_ref.exists() {
+    return Ok(());
+  }
+
+  if path_ref.is_dir() {
+    std::fs::remove_dir_all(path_ref)
+      .map_err(|e| format!("Failed to remove directory: {}", e))?;
+  } else {
+    std::fs::remove_file(path_ref)
+      .map_err(|e| format!("Failed to remove file: {}", e))?;
+  }
+
+  Ok(())
+}
+
+#[tauri::command]
 fn write_text_file(path: String, content: String) -> Result<(), String> {
   std::fs::write(&path, content)
     .map_err(|e| format!("Failed to write file: {}", e))
@@ -248,11 +448,21 @@ pub fn run() {
   let app = tauri::Builder::default()
     .invoke_handler(tauri::generate_handler![
       run_ffmpeg,
+      start_ffmpeg_session,
+      write_ffmpeg_session_chunk,
+      write_active_ffmpeg_chunk,
+      finish_ffmpeg_session,
+      finish_active_ffmpeg_session,
+      abort_ffmpeg_session,
+      abort_active_ffmpeg_session,
       run_ffmpeg_binary,
       extract_metadata,
       generate_waveform,
       generate_thumbnail,
       write_export_chunk,
+      write_binary_file,
+      create_temp_dir,
+      remove_path,
       write_text_file,
       read_text_file,
       select_open_file,
