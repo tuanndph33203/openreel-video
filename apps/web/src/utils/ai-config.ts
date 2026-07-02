@@ -47,7 +47,7 @@ export function resolveAiProviderConfig({
     const resolvedModel =
       trimmedSelectedModel === SETTINGS_CUSTOM_MODEL
         ? settingsModel || undefined
-        : normalizedSelectedModel ?? settingsModel ?? undefined;
+        : settingsModel ?? normalizedSelectedModel ?? undefined;
 
     if (resolvedModel === NVIDIA_QWEN3_NEXT_MODEL) {
       return {
@@ -63,20 +63,22 @@ export function resolveAiProviderConfig({
   }
 
   if (provider === "anthropic") {
+    const settingsModel = customAnthropicModel?.trim();
     return {
       customBaseUrl: customAnthropicBaseUrl?.trim() || undefined,
       customModel:
         trimmedSelectedModel === SETTINGS_CUSTOM_MODEL
-          ? customAnthropicModel?.trim() || undefined
-          : normalizedSelectedModel ?? customAnthropicModel?.trim() ?? undefined,
+          ? settingsModel || undefined
+          : settingsModel ?? normalizedSelectedModel ?? undefined,
     };
   }
 
+  const settingsModel = customGeminiModel?.trim();
   return {
     customBaseUrl: customGeminiBaseUrl?.trim() || undefined,
     customModel:
       trimmedSelectedModel === SETTINGS_CUSTOM_MODEL
-        ? customGeminiModel?.trim() || undefined
-        : normalizedSelectedModel ?? customGeminiModel?.trim() ?? undefined,
+        ? settingsModel || undefined
+        : settingsModel ?? normalizedSelectedModel ?? undefined,
   };
 }

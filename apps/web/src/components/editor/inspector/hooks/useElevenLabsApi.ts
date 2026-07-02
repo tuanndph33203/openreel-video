@@ -6,6 +6,7 @@ import { apiFetch } from "../../../../services/api-proxy";
 import { OPENREEL_TTS_URL } from "../../../../config/api-endpoints";
 import type { ElevenLabsVoice, ElevenLabsModel } from "../tts-types";
 import { FALLBACK_MODELS, ENHANCE_SYSTEM_PROMPT } from "../tts-constants";
+import { resolveAiProviderConfig } from "../../../../utils/ai-config";
 
 interface UseElevenLabsApiOptions {
   provider: TtsProvider;
@@ -33,6 +34,11 @@ export function useElevenLabsApi(options: UseElevenLabsApiOptions): UseElevenLab
     cachedElevenLabsModels,
     setCachedElevenLabsVoices,
     setCachedElevenLabsModels,
+    customOpenAiBaseUrl,
+    customAnthropicBaseUrl,
+    customGeminiBaseUrl,
+    customOpenAiModel,
+    customAnthropicModel,
     customGeminiModel,
   } = useSettingsStore();
 
@@ -210,6 +216,15 @@ export function useElevenLabsApi(options: UseElevenLabsApiOptions): UseElevenLab
 
   const enhanceViaLlm = useCallback(async (inputText: string, signal?: AbortSignal): Promise<string> => {
     const llmProvider = defaultLlmProvider;
+    const { customBaseUrl, customModel } = resolveAiProviderConfig({
+      provider: llmProvider as "openai" | "anthropic" | "gemini",
+      customOpenAiBaseUrl,
+      customAnthropicBaseUrl,
+      customGeminiBaseUrl,
+      customOpenAiModel,
+      customAnthropicModel,
+      customGeminiModel,
+    });
 
     if (!isSessionUnlocked()) {
       throw new Error("Session locked. Unlock in Settings > API Keys to use text enhancement.");
@@ -223,9 +238,12 @@ export function useElevenLabsApi(options: UseElevenLabsApiOptions): UseElevenLab
     if (llmProvider === "anthropic") {
       const response = await apiFetch("anthropic", "/messages", apiKey, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(customBaseUrl ? { "x-proxy-base-url": customBaseUrl } : {}),
+        },
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
+          model: customModel || "claude-sonnet-4-20250514",
           max_tokens: 2048,
           system: ENHANCE_SYSTEM_PROMPT,
           messages: [{ role: "user", content: inputText }],
@@ -246,12 +264,14 @@ export function useElevenLabsApi(options: UseElevenLabsApiOptions): UseElevenLab
     }
 
     if (llmProvider === "gemini") {
-      const geminiModel = customGeminiModel?.trim() || "gemini-1.5-flash";
       const response = await apiFetch("gemini", "/chat/completions", apiKey, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(customBaseUrl ? { "x-proxy-base-url": customBaseUrl } : {}),
+        },
         body: JSON.stringify({
-          model: geminiModel,
+          model: customModel || "gemini-1.5-flash",
           messages: [
             { role: "user", content: `${ENHANCE_SYSTEM_PROMPT}\n\n${inputText}` },
           ],
@@ -274,9 +294,12 @@ export function useElevenLabsApi(options: UseElevenLabsApiOptions): UseElevenLab
     // Default: OpenAI
     const response = await apiFetch("openai", "/chat/completions", apiKey, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(customBaseUrl ? { "x-proxy-base-url": customBaseUrl } : {}),
+      },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: customModel || "gpt-4o-mini",
         messages: [
           { role: "system", content: ENHANCE_SYSTEM_PROMPT },
           { role: "user", content: inputText },
@@ -295,7 +318,15 @@ export function useElevenLabsApi(options: UseElevenLabsApiOptions): UseElevenLab
     const data = await response.json();
     const choices = (data as { choices: Array<{ message: { content: string } }> }).choices;
     return choices?.[0]?.message?.content ?? inputText;
-  }, [defaultLlmProvider]);
+  }, [
+    customAnthropicBaseUrl,
+    customAnthropicModel,
+    customGeminiBaseUrl,
+    customGeminiModel,
+    customOpenAiBaseUrl,
+    customOpenAiModel,
+    defaultLlmProvider,
+  ]);
 
   return {
     allVoices,

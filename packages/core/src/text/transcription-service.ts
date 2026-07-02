@@ -21,19 +21,18 @@ function getProxyService(provider: "openai" | "anthropic" | "gemini", customBase
 }
 
 export interface BatchPayload {
-  sourceLanguage: string;
-  targetLanguage: string;
+  source_language: string;
+  target_language: string;
   tone: string;
-  topic: string;
+  video_context: string;
   glossary?: Record<string, string>;
-  temperature?: number;
-  previousContext?: string[];
-  lines: Array<{ id: string; text: string }>;
-  nextContext?: string[];
-  translationBranch?: "A" | "B";
+  previous_context?: string[];
+  lines: string[];
+  next_context?: string[];
+  translation_branch?: "A" | "B";
 }
 
-export function buildSystemPrompt(settings: TranslationSettings, isUltraShort = false): string {
+export function buildSystemPromptLegacy(settings: TranslationSettings, isUltraShort = false): string {
   const isVietnamese = settings.targetLanguage.toLowerCase().includes("viet");
   const isBranchB = settings.translationBranch === "B";
   
@@ -110,7 +109,7 @@ Rules:
 - No conversational filler, no markdown, no explanation.${viRules}${glossaryRule}`.trim();
 }
 
-export function buildSanitizationPrompt(_settings: TranslationSettings): string {
+export function buildSanitizationPromptLegacy(_settings: TranslationSettings): string {
   return `You are an expert ASR (Speech-to-Text) data cleaning and spelling correction AI.
 Context: Short fantasy game online videos, MMORPG gameplay review, PvP server war (quốc chiến).
 Source language: Chinese.
@@ -134,6 +133,71 @@ ASR Typo Correction Guide:
 - No conversational filler, no markdown, no explanation.`;
 }
 
+export function buildSystemPrompt(settings: TranslationSettings, isUltraShort = false): string {
+  if (isUltraShort) {
+    return `Translate the normalized subtitle lines from ${settings.sourceLanguage} to ${settings.targetLanguage}.
+Return only valid JSON in the form {"translations":["translation_1","translation_2"]}.
+The translations array length must exactly match the input lines length.
+Never merge, omit, split, move, or reorder lines.`;
+  }
+
+  const topicHeader = settings.topic && settings.topic !== "N/A"
+    ? `\nContext: ${settings.topic}`
+    : "";
+  const glossaryRule = settings.glossary && Object.keys(settings.glossary).length > 0
+    ? "\nUser glossary mappings take absolute priority."
+    : "";
+
+  return `You are an expert ${settings.sourceLanguage}-to-${settings.targetLanguage} subtitle translator.${topicHeader}
+
+Task: Translate the normalized subtitle lines into natural ${settings.targetLanguage}.
+
+Strict rules:
+1. Return only a valid JSON object in this format: {"translations":["translation_1","translation_2"]}.
+2. The translations array must have exactly the same number of elements as the input lines.
+3. Preserve the exact order and one-to-one index correspondence.
+4. Never merge, omit, split, move, or reorder lines.
+5. Treat the normalized source lines as authoritative. Do not perform another speculative ASR reconstruction.
+6. Use surrounding context only to understand pronouns, sentence fragments, tone, and terminology.
+7. Do not invent skill names, materials, actions, relationships, or story details absent from the source.
+8. Translate names consistently. Use natural Sino-Vietnamese readings when appropriate.
+9. Do not leave Chinese characters or pinyin in the Vietnamese output.
+10. A subtitle fragment may remain a natural fragment with an ellipsis. Do not borrow meaning from a context-only line merely to make the current line grammatically complete.
+11. No markdown, explanation, comments, or additional keys.${glossaryRule}`.trim();
+}
+
+export function buildSanitizationPrompt(settings: TranslationSettings): string {
+  const topic = settings.topic && settings.topic !== "N/A"
+    ? `\n视频语境：${settings.topic}`
+    : "";
+  const glossary = settings.glossary && Object.keys(settings.glossary).length > 0
+    ? `\n术语表（仅作参考，不要凭空扩写）：\n${Object.entries(settings.glossary)
+        .map(([key, value]) => `- ${key}: ${value}`)
+        .join("\n")}`
+    : "";
+
+  return `你是一名专业的中文ASR字幕纠错模型。${topic}
+
+任务：根据整段上下文，修正明显的语音识别错误、同音字、错别字、漏字和不合理的标点。${glossary}
+
+严格规则：
+1. 输入和输出均为简体中文，不要翻译。
+2. 必须保持输入行数、顺序和索引完全不变。
+3. 每个输出元素只能对应同一索引的输入行。
+4. 不得合并、删除、拆分、移动或重新排列字幕行。
+5. 可以参考前后文判断同音字，但不得把相邻行的内容移入当前行。
+6. 只修改有充分依据的错误，正确的句子必须保持不变。
+7. 不要为了让句子通顺而随意改写。
+8. 如无法完全确定，请基于上下文给出最合理、最克制的修正猜测，不要留空。
+9. 不得凭空创造技能名、道具名、材料名、角色名、生物名或世界观设定。
+10. 输出只能是合法JSON，不要输出Markdown、解释或额外文字。
+
+输出格式：
+{"translations":["修正后的第1行","修正后的第2行"]}
+
+translations数组长度必须与输入lines数组长度完全一致。`;
+}
+
 export function buildBatchPayload(
   settings: TranslationSettings,
   lines: Array<{ id: string; text: string }>,
@@ -141,14 +205,39 @@ export function buildBatchPayload(
   nextContext?: string[]
 ): BatchPayload {
   return {
-    sourceLanguage: settings.sourceLanguage,
-    targetLanguage: settings.targetLanguage,
+    source_language: settings.sourceLanguage,
+    target_language: settings.targetLanguage,
     tone: settings.tone || "natural and fluent",
-    topic: settings.topic || "N/A",
+    video_context: settings.topic || "N/A",
     glossary: settings.glossary,
-    previousContext: previousContext && previousContext.length > 0 ? previousContext : undefined,
-    lines,
-    nextContext: nextContext && nextContext.length > 0 ? nextContext : undefined
+    previous_context: previousContext && previousContext.length > 0 ? previousContext : undefined,
+    lines: lines.map((line) => line.text),
+    next_context: nextContext && nextContext.length > 0 ? nextContext : undefined,
+    translation_branch: settings.translationBranch,
+  };
+}
+
+export function createBatchWindow(
+  lines: Subtitle[],
+  start: number,
+  batchSize: number,
+  overlap: number
+): {
+  windowLines: Subtitle[];
+  coreLines: Subtitle[];
+  previousContext: string[];
+  nextContext: string[];
+} {
+  const coreStart = start;
+  const coreEnd = Math.min(lines.length, start + batchSize);
+  const windowStart = Math.max(0, coreStart - overlap);
+  const windowEnd = Math.min(lines.length, coreEnd + overlap);
+
+  return {
+    windowLines: lines.slice(windowStart, windowEnd),
+    coreLines: lines.slice(coreStart, coreEnd),
+    previousContext: lines.slice(windowStart, coreStart).map((line) => line.text),
+    nextContext: lines.slice(coreEnd, windowEnd).map((line) => line.text),
   };
 }
 
@@ -169,6 +258,10 @@ export function hasSourceChars(text: string, sourceLanguage: string): boolean {
 export interface BatchValidationResult {
   isValid: boolean;
   errorReason?: string;
+}
+
+export interface SanitizeBatchResult {
+  map: Map<string, string>;
 }
 
 export function validateBatchResult(
@@ -335,10 +428,8 @@ export function buildRequestBody(
   temperature = 0.0
 ): any {
   const isReasoningModel = resolvedModel.startsWith('o1') || resolvedModel.startsWith('o3') || isMimo;
-  
-  // Set lower temperature and limit max tokens for reasoning models to avoid verbose thoughts
   const finalTemperature = isReasoningModel ? 0.0 : Math.max(0.0, temperature);
-  const maxCompletionTokens = isReasoningModel ? 4000 : 100000;
+  const maxCompletionTokens = isReasoningModel ? 4000 : 1600;
   if (lineCount) {}
 
   const userContent = typeof payload === 'string' ? payload : JSON.stringify(payload);
@@ -351,13 +442,15 @@ export function buildRequestBody(
         { role: 'user', content: userContent }
       ],
       temperature: finalTemperature,
-      top_p: 0.9,
-      max_completion_tokens: maxCompletionTokens,
+      top_p: 1,
       stream: false // Force standard non-streaming response
     };
 
     if (isReasoningModel) {
+      body.max_completion_tokens = maxCompletionTokens;
       body.reasoning_effort = "low";
+    } else {
+      body.max_tokens = maxCompletionTokens;
     }
 
     const isActualReasoning = resolvedModel.startsWith('o1') || resolvedModel.startsWith('o3') || isMimo;
@@ -474,7 +567,7 @@ export async function translateBatchWithRetry(
       if (arr[i] !== undefined && arr[i] !== null) {
         resultArr.push(String(arr[i]).trim());
       } else {
-        resultArr.push(batchLines[i].text); // Fallback to original text if missing
+        resultArr.push(batchLines[i].text);
       }
     }
 
@@ -486,7 +579,7 @@ export async function translateBatchWithRetry(
   };
 
 
-  const callAIOnce = async (userPrompt: string, systemPrompt: string, temperature: number) => {
+  const callAIOnce = async (userPrompt: string | BatchPayload, systemPrompt: string, temperature: number) => {
     const requestBody = buildRequestBody(
       userPrompt,
       systemPrompt,
@@ -522,7 +615,7 @@ export async function translateBatchWithRetry(
     return parseResponse(rawContent);
   };
 
-  const userMessage = formatUserMessage(batchLines, previousContext, nextContext);
+  const userPayload = buildBatchPayload(settings, batchLines, previousContext, nextContext);
 
   const targetTemp = settings.temperature !== undefined ? Math.max(0.0, settings.temperature) : 0.0;
 
@@ -530,7 +623,7 @@ export async function translateBatchWithRetry(
   try {
     console.log(`[AI Translation] Attempt 1 (Index-based, temp ${targetTemp}) for ${batchLines.length} lines...`);
     const systemPrompt = buildSystemPrompt(settings, false);
-    const batchMap = await callAIOnce(userMessage, systemPrompt, targetTemp);
+    const batchMap = await callAIOnce(userPayload, systemPrompt, targetTemp);
     const validation = validateBatchResult(batchLines, batchMap, settings.sourceLanguage);
     if (validation.isValid) {
       return batchMap;
@@ -544,7 +637,7 @@ export async function translateBatchWithRetry(
   try {
     console.log(`[AI Translation] Attempt 2 (Index-based, Ultra-short, temp ${targetTemp}) for ${batchLines.length} lines...`);
     const systemPrompt = buildSystemPrompt(settings, true);
-    const batchMap = await callAIOnce(userMessage, systemPrompt, targetTemp);
+    const batchMap = await callAIOnce(userPayload, systemPrompt, targetTemp);
     const validation = validateBatchResult(batchLines, batchMap, settings.sourceLanguage);
     if (validation.isValid) {
       return batchMap;
@@ -645,7 +738,7 @@ export async function sanitizeBatchWithRetry(
   isMimo: boolean,
   previousContext?: string[],
   nextContext?: string[]
-): Promise<Map<string, string>> {
+): Promise<SanitizeBatchResult> {
   const parseResponse = (raw: string) => {
     let text = raw.trim();
     let arr: any[] = [];
@@ -705,7 +798,7 @@ export async function sanitizeBatchWithRetry(
       if (arr[i] !== undefined && arr[i] !== null) {
         resultArr.push(String(arr[i]).trim());
       } else {
-        resultArr.push(batchLines[i].text); // Fallback to original text if missing
+        resultArr.push(batchLines[i].text);
       }
     }
 
@@ -713,10 +806,10 @@ export async function sanitizeBatchWithRetry(
     for (let i = 0; i < batchLines.length; i++) {
       map.set(batchLines[i].id, resultArr[i]);
     }
-    return map;
+    return { map };
   };
 
-  const callAIOnce = async (userPrompt: string, systemPrompt: string, temperature: number) => {
+  const callAIOnce = async (userPrompt: string | BatchPayload, systemPrompt: string, temperature: number) => {
     const requestBody = buildRequestBody(
       userPrompt,
       systemPrompt,
@@ -752,17 +845,17 @@ export async function sanitizeBatchWithRetry(
     return parseResponse(rawContent);
   };
 
-  const userMessage = formatUserMessage(batchLines, previousContext, nextContext);
+  const userPayload = buildBatchPayload(settings, batchLines, previousContext, nextContext);
   const targetTemp = settings.temperature !== undefined ? Math.max(0.0, settings.temperature) : 0.0;
 
   try {
     console.log(`[AI Sanitization] (temp ${targetTemp}) for ${batchLines.length} lines...`);
     const systemPrompt = buildSanitizationPrompt(settings);
-    const batchMap = await callAIOnce(userMessage, systemPrompt, targetTemp);
-    if (batchMap.size === batchLines.length) {
-      return batchMap;
+    const batchResult = await callAIOnce(userPayload, systemPrompt, targetTemp);
+    if (batchResult.map.size === batchLines.length) {
+      return batchResult;
     }
-    throw new Error(`Count mismatch: expected ${batchLines.length}, got ${batchMap.size}`);
+    throw new Error(`Count mismatch: expected ${batchLines.length}, got ${batchResult.map.size}`);
   } catch (err) {
     console.warn(`[AI Sanitization] failed with error:`, err);
     throw err; // Trigger recursive splitting in parent call
@@ -779,7 +872,7 @@ export async function recursiveBatchSanitize(
   isMimo: boolean,
   previousContext?: string[],
   nextContext?: string[]
-): Promise<Map<string, string>> {
+): Promise<SanitizeBatchResult> {
   try {
     const result = await sanitizeBatchWithRetry(
       batchLines,
@@ -800,7 +893,7 @@ export async function recursiveBatchSanitize(
       if (batchLines[0]) {
         fallbackMap.set(batchLines[0].id, batchLines[0].text);
       }
-      return fallbackMap;
+      return { map: fallbackMap };
     }
 
     const mid = Math.floor(batchLines.length / 2);
@@ -809,7 +902,7 @@ export async function recursiveBatchSanitize(
 
     console.warn(`[AI Sanitization] Batch of size ${batchLines.length} failed. Recursively splitting into sizes ${leftBatch.length} and ${rightBatch.length}...`);
 
-    const leftMap = await recursiveBatchSanitize(
+    const leftResult = await recursiveBatchSanitize(
       leftBatch,
       settings,
       url,
@@ -823,10 +916,10 @@ export async function recursiveBatchSanitize(
 
     const updatedPreviousContext = [
       ...(previousContext || []),
-      ...leftBatch.map(line => leftMap.get(line.id) || line.text)
+      ...leftBatch.map(line => leftResult.map.get(line.id) || line.text)
     ].slice(-5);
 
-    const rightMap = await recursiveBatchSanitize(
+    const rightResult = await recursiveBatchSanitize(
       rightBatch,
       settings,
       url,
@@ -838,7 +931,9 @@ export async function recursiveBatchSanitize(
       nextContext
     );
 
-    return new Map<string, string>([...leftMap, ...rightMap]);
+    return {
+      map: new Map<string, string>([...leftResult.map, ...rightResult.map]),
+    };
   }
 }
 
@@ -959,7 +1054,8 @@ export class TranscriptionService {
           message: "Sanitizing raw transcription text using AI...",
         });
         try {
-          subtitles = await this.sanitizeSubtitlesWithAI(subtitles);
+          const sanitizeResult = await this.sanitizeSubtitlesWithAI(subtitles);
+          subtitles = sanitizeResult.subtitles;
         } catch (err) {
           console.warn("[TranscriptionService] Data sanitization failed, proceeding with raw subtitles:", err);
         }
@@ -1161,39 +1257,39 @@ export class TranscriptionService {
     };
 
     const BATCH_SIZE = 20;
-    const CONTEXT_WINDOW = settings.translationBranch === 'B' ? 2 : 5;
+    const OVERLAP_LINES = 2;
     const globalTranslationMap = new Map<string, string>();
 
     for (let i = 0; i < textSubtitles.length; i += BATCH_SIZE) {
-      const batchLines = textSubtitles.slice(i, i + BATCH_SIZE);
-
-      const prevLines = textSubtitles
-        .slice(Math.max(0, i - CONTEXT_WINDOW), i)
-        .map(s => s.text);
-
-      const nextLines = textSubtitles
-        .slice(i + BATCH_SIZE, Math.min(textSubtitles.length, i + BATCH_SIZE + CONTEXT_WINDOW))
-        .map(s => s.text);
+      const { coreLines, previousContext, nextContext } = createBatchWindow(
+        textSubtitles,
+        i,
+        BATCH_SIZE,
+        OVERLAP_LINES
+      );
 
       try {
         const batchMap = await recursiveBatchTranslate(
-          batchLines.map(s => ({ id: s.id, text: s.text })),
+          coreLines.map(s => ({ id: s.id, text: s.text })),
           settings,
           url,
           headers,
           provider,
           resolvedModel,
           isMimo,
-          prevLines,
-          nextLines
+          previousContext,
+          nextContext
         );
-        for (const [id, text] of batchMap) {
-          globalTranslationMap.set(id, text);
+        for (const line of coreLines) {
+          const translated = batchMap.get(line.id);
+          if (translated) {
+            globalTranslationMap.set(line.id, translated);
+          }
         }
-        console.log(`[AI Translation] Batch ${Math.floor(i / BATCH_SIZE) + 1}: OK (${batchMap.size}/${batchLines.length})`);
+        console.log(`[AI Translation] Batch ${Math.floor(i / BATCH_SIZE) + 1}: OK (${coreLines.length}/${coreLines.length})`);
       } catch (err) {
         console.error(`[AI Translation] Batch ${Math.floor(i / BATCH_SIZE) + 1} failed completely:`, err);
-        for (const s of batchLines) {
+        for (const s of coreLines) {
           globalTranslationMap.set(s.id, repairWithGlossary(s.text, settings.glossary));
         }
       }
@@ -1242,7 +1338,7 @@ export class TranscriptionService {
 
   private async sanitizeSubtitlesWithAI(
     subtitles: Subtitle[]
-  ): Promise<Subtitle[]> {
+  ): Promise<{ subtitles: Subtitle[] }> {
     const aiConfig = this.config.aiConfig;
     if (!aiConfig || !aiConfig.apiKey) {
       throw new Error("Missing AI configuration or API Key");
@@ -1276,7 +1372,11 @@ export class TranscriptionService {
     const topic = aiConfig.videoContext?.trim() || "N/A";
 
     const textSubtitles = subtitles.filter(s => s.text && s.text.trim().length > 0);
-    if (textSubtitles.length === 0) return subtitles;
+    if (textSubtitles.length === 0) {
+      return {
+        subtitles,
+      };
+    }
 
     const proxyService = getProxyService(provider, aiConfig.customBaseUrl);
     const url = `/api/proxy/${proxyService}${(provider === 'openai' || provider === 'gemini') ? '/chat/completions' : '/messages'}`;
@@ -1316,30 +1416,39 @@ export class TranscriptionService {
     };
 
     const BATCH_SIZE = 20;
+    const OVERLAP_LINES = 2;
     const globalSanitizeMap = new Map<string, string>();
 
     for (let i = 0; i < textSubtitles.length; i += BATCH_SIZE) {
-      const batchLines = textSubtitles.slice(i, i + BATCH_SIZE);
+      const { coreLines, previousContext, nextContext } = createBatchWindow(
+        textSubtitles,
+        i,
+        BATCH_SIZE,
+        OVERLAP_LINES
+      );
 
       try {
-        const batchMap = await recursiveBatchSanitize(
-          batchLines.map(s => ({ id: s.id, text: s.text })),
+        const batchResult = await recursiveBatchSanitize(
+          coreLines.map(s => ({ id: s.id, text: s.text })),
           settings,
           url,
           headers,
           provider,
           resolvedModel,
           isMimo,
-          undefined, // Omit prevLines context for sanitization
-          undefined  // Omit nextLines context for sanitization
+          previousContext,
+          nextContext
         );
-        for (const [id, text] of batchMap) {
-          globalSanitizeMap.set(id, text);
+        for (const line of coreLines) {
+          const sanitized = batchResult.map.get(line.id);
+          if (sanitized) {
+            globalSanitizeMap.set(line.id, sanitized);
+          }
         }
-        console.log(`[AI Sanitization] Batch ${Math.floor(i / BATCH_SIZE) + 1}: OK (${batchMap.size}/${batchLines.length})`);
+        console.log(`[AI Sanitization] Batch ${Math.floor(i / BATCH_SIZE) + 1}: OK (${coreLines.length}/${coreLines.length})`);
       } catch (err) {
         console.error(`[AI Sanitization] Batch ${Math.floor(i / BATCH_SIZE) + 1} failed:`, err);
-        for (const s of batchLines) {
+        for (const s of coreLines) {
           globalSanitizeMap.set(s.id, s.text);
         }
       }
@@ -1380,7 +1489,9 @@ export class TranscriptionService {
       }
     }
 
-    return resultList;
+    return {
+      subtitles: resultList,
+    };
   }
 
   private segmentTranslatedSubtitle(

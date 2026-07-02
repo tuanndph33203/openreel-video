@@ -8,7 +8,6 @@
 
 import { useSettingsStore } from "../stores/settings-store";
 
-
 const DIRECT_CONFIG = {
   elevenlabs: {
     baseUrl: "https://api.elevenlabs.io/v1",
@@ -56,26 +55,30 @@ export async function apiFetch(
   options: globalThis.RequestInit = {},
 ): Promise<Response> {
   const extraHeaders = (options.headers ?? {}) as Record<string, string>;
+  const explicitCustomBaseUrl =
+    typeof extraHeaders["x-proxy-base-url"] === "string"
+      ? extraHeaders["x-proxy-base-url"].trim().replace(/\/$/, "")
+      : "";
 
-  // Check if there is a custom base URL configured in the settings store
   let customBaseUrl = "";
-  try {
-    const settingsState = useSettingsStore.getState();
-    if (service === "openai" && settingsState.customOpenAiBaseUrl) {
-      customBaseUrl = settingsState.customOpenAiBaseUrl.trim().replace(/\/$/, "");
-    } else if (service === "anthropic" && settingsState.customAnthropicBaseUrl) {
-      customBaseUrl = settingsState.customAnthropicBaseUrl.trim().replace(/\/$/, "");
-    } else if (service === "gemini" && settingsState.customGeminiBaseUrl) {
-      customBaseUrl = settingsState.customGeminiBaseUrl.trim().replace(/\/$/, "");
+  if (!explicitCustomBaseUrl) {
+    try {
+      const settingsState = useSettingsStore.getState();
+      if (service === "openai" && settingsState.customOpenAiBaseUrl) {
+        customBaseUrl = settingsState.customOpenAiBaseUrl.trim().replace(/\/$/, "");
+      } else if (service === "anthropic" && settingsState.customAnthropicBaseUrl) {
+        customBaseUrl = settingsState.customAnthropicBaseUrl.trim().replace(/\/$/, "");
+      } else if (service === "gemini" && settingsState.customGeminiBaseUrl) {
+        customBaseUrl = settingsState.customGeminiBaseUrl.trim().replace(/\/$/, "");
+      }
+    } catch (e) {
+      console.error("Failed to read settings store in apiFetch:", e);
     }
-  } catch (e) {
-    console.error("Failed to read settings store in apiFetch:", e);
   }
 
-  // Luôn đi qua cùng nguồn proxy /api/proxy/ để máy chủ Node.js/Cloudflare thực hiện cuộc gọi chéo miền
-  // Giúp giải quyết triệt để lỗi mất tiêu đề Authorization do CORS preflight của trình duyệt
+  const resolvedBaseUrl = explicitCustomBaseUrl || customBaseUrl;
   const proxyService =
-    service === "openai" && customBaseUrl.includes("integrate.api.nvidia.com")
+    service === "openai" && resolvedBaseUrl.includes("integrate.api.nvidia.com")
       ? "nvidia"
       : service;
   const url = `/api/proxy/${proxyService}${path}`;
@@ -84,8 +87,8 @@ export async function apiFetch(
     ...extraHeaders,
   };
 
-  if (customBaseUrl) {
-    proxyHeaders["x-proxy-base-url"] = customBaseUrl;
+  if (resolvedBaseUrl) {
+    proxyHeaders["x-proxy-base-url"] = resolvedBaseUrl;
   }
 
   return fetch(url, {

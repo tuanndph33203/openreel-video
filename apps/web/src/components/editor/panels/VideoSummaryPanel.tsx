@@ -5,6 +5,7 @@ import { useTimelineStore } from "../../../stores/timeline-store";
 import { generateVideoInsights, type VideoInsights } from "@openreel/core";
 import { getSecret, isSessionUnlocked } from "../../../services/secure-storage";
 import { useSettingsStore } from "../../../stores/settings-store";
+import { resolveAiProviderConfig } from "../../../utils/ai-config";
 import {
   Select,
   SelectTrigger,
@@ -114,21 +115,23 @@ export const VideoSummaryPanel: React.FC = () => {
         : insightsModelType;
 
       const settingsState = useSettingsStore.getState();
-      const customBaseUrl = aiProvider === "openai"
-        ? settingsState.customOpenAiBaseUrl
-        : aiProvider === "anthropic"
-          ? settingsState.customAnthropicBaseUrl
-          : settingsState.customGeminiBaseUrl;
-
       const aiConfig = {
         provider: aiProvider,
         apiKey,
         tone: config?.aiTone || "natural and fluent",
         videoContext: config?.videoContext || undefined,
-        customBaseUrl: customBaseUrl || undefined,
-        customModel: resolvedCustomModel || undefined,
         temperature: insightsTemperature,
         seoLanguages: insightsSeoLanguages,
+        ...resolveAiProviderConfig({
+          provider: aiProvider,
+          selectedModel: resolvedCustomModel || undefined,
+          customOpenAiBaseUrl: settingsState.customOpenAiBaseUrl,
+          customAnthropicBaseUrl: settingsState.customAnthropicBaseUrl,
+          customGeminiBaseUrl: settingsState.customGeminiBaseUrl,
+          customOpenAiModel: settingsState.customOpenAiModel,
+          customAnthropicModel: settingsState.customAnthropicModel,
+          customGeminiModel: settingsState.customGeminiModel,
+        }),
       };
 
       const result = await generateVideoInsights(subtitles, aiConfig as any);
